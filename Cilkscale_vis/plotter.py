@@ -146,5 +146,17 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
 
     axs[r,1].legend(loc="upper left")
 
+    # Add vertical lines to delimit sockets
+    added_socket = []
+    first_socket = True
+    for cpu_id, socket_id in cpus:
+      if len(added_socket) == 0 or socket_id != added_socket[-1]:
+        added_socket.append(socket_id)
+        if first_socket:
+          first_socket = False
+        else:
+          axs[r,0].axvline(x=cpu_id, ls=':', c="gray")
+          axs[r,1].axvline(x=cpu_id, ls=':', c="gray")
+
   plt.savefig(out_plot)
 
