@@ -77,8 +77,14 @@ def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
   # any tmp files will be destroyed
   run_command = bin_bench + " " + " ".join(bin_args)
   results = dict()
+  last_CPU = NCPUS+1
   for i in range(1, NCPUS+1):
-    results[i] = run_on_p_workers(i, run_command)
+    try:
+      results[i] = run_on_p_workers(i, run_command)
+    except KeyboardInterrupt:
+      logger.info("Benchmarking stopped early at " + str(i-1) + " cpus.")
+      last_CPU = i
+      break
 
   new_rows = []
 
@@ -90,7 +96,7 @@ def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
       new_rows[i] = new_rows[i].strip("\n")
 
     # join all the csv data
-    for i in range(1, NCPUS+1):
+    for i in range(1, last_CPU):
       with open(benchmark_tmp_output(i), "r") as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         row_num = 0

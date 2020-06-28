@@ -33,7 +33,7 @@ def sanitize_rows_to_plot(out_csv, rows_to_plot):
 
   return new_rows_to_plot
 
-def get_row_data(out_csv, rows_to_plot):
+def get_row_data(out_csv, rows_to_plot, max_cpus=0):
   # list of (tag, data)
   all_data = []
 
@@ -57,6 +57,8 @@ def get_row_data(out_csv, rows_to_plot):
           elif row[i].startswith("1c"):
             # subtract 1 because we will add 1-indexed cpu counts to this value
             bench_col_start = i-1
+        if max_cpus == 0:
+          max_cpus = num_cpus
 
       elif row_num in rows_to_plot:
         # collect data from this row of the csv file
@@ -75,15 +77,19 @@ def get_row_data(out_csv, rows_to_plot):
         data["greedy_speedup"] = []
         data["span_speedup"] = []
 
-        for i in range(1, num_cpus+1):
+        for i in range(1, max_cpus+1):
           data["num_workers"].append(i)
 
-          data["obs_runtime"].append(float(row[bench_col_start+i]))
+          if i > num_cpus:
+            data["obs_runtime"].append(float("nan"))
+            data["obs_speedup"].append(float("nan"))
+          else:
+            data["obs_runtime"].append(float(row[bench_col_start+i]))
+            data["obs_speedup"].append(single_core_runtime/float(row[bench_col_start+i]))
           data["perf_lin_runtime"].append(single_core_runtime/i)
           data["greedy_runtime"].append(bound_runtime(single_core_runtime, parallelism, i))
           data["span_runtime"].append(single_core_runtime/parallelism)
 
-          data["obs_speedup"].append(single_core_runtime/float(row[bench_col_start+i]))
           data["perf_lin_speedup"].append(1.0*i)
           data["greedy_speedup"].append(single_core_runtime/(bound_runtime(single_core_runtime, parallelism, i)))
           data["span_speedup"].append(parallelism)
@@ -95,10 +101,10 @@ def get_row_data(out_csv, rows_to_plot):
   return all_data
 
 # by default, plots the last row (i.e. overall execution)
-def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
+def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
 
   rows_to_plot = sanitize_rows_to_plot(out_csv, rows_to_plot)
-  all_data = get_row_data(out_csv, rows_to_plot)
+  all_data = get_row_data(out_csv, rows_to_plot, len(cpus))
 
   num_plots = len(all_data)
 
@@ -115,7 +121,10 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
     axs[r,0].plot(data["num_workers"], data["greedy_runtime"], "c", label="Burdened-dag bound")
     axs[r,0].plot(data["num_workers"], data["span_runtime"], "y", label="Span bound")
 
-    num_workers = data["num_workers"][-1]
+    if cpus:
+      num_workers = len(cpus)
+    else:
+      num_workers = data["num_workers"][-1]
 
     axs[r,0].set_xlabel("Num workers")
     axs[r,0].set_ylabel("Runtime")

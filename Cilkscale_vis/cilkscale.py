@@ -1,7 +1,7 @@
 import argparse
 import logging
 import sys
-from runner import run
+from runner import run, get_cpu_ordering
 from plotter import plot, can_plot
 
 logger = logging.getLogger(sys.argv[0])
@@ -37,7 +37,7 @@ def main():
     # (out_plot defaults to plot.pdf)
     # (rows defaults to just the last row in the csv)
     rows_to_plot = list(map(int, args.rows_to_plot.split(",")))
-    plot(out_csv, out_plot, rows_to_plot)
+    plot(out_csv, out_plot, rows_to_plot, get_cpu_ordering())
 
 if __name__ == '__main__':
   main()
