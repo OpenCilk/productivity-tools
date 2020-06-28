@@ -1,5 +1,6 @@
 import logging
 import csv
+import re
 
 can_plot = True
 try:
@@ -48,13 +49,17 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
 
     for row in rows:
       if row_num == 0:
+        header = row
         # get num cpus (extracts num_cpus from, for example, "32c time (seconds)" )
         num_cpus = int(row[-1].split()[0][:-1])
         # find parallelism col and start of benchmark cols
         for i in range(len(row)):
           if row[i] == "burdened_parallelism":
             par_col = i
-          elif row[i].startswith("1c"):
+          elif bench_col_start == 0 and re.match(r"(\d+)c", row[i]):
+            min_count = int(re.match(r"(\d+)c", row[i]).group(1))
+            if min_count != 1:
+              logger.warning("Estimating 1-core running time from " + str(min_count) + " core running time")
             # subtract 1 because we will add 1-indexed cpu counts to this value
             bench_col_start = i-1
         if max_cpus == 0:
@@ -64,7 +69,7 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
         # collect data from this row of the csv file
         tag = row[0]
         parallelism = float(row[par_col])
-        single_core_runtime = float(row[bench_col_start+1])
+        single_core_runtime = float(row[bench_col_start+1]) * min_count
 
         data = {}
         data["num_workers"] = []
@@ -77,15 +82,17 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
         data["greedy_speedup"] = []
         data["span_speedup"] = []
 
+        bench_col = bench_col_start + 1
         for i in range(1, max_cpus+1):
           data["num_workers"].append(i)
 
-          if i > num_cpus:
+          if i > num_cpus or bench_col >= len(row) or i != int(re.match(r"(\d+)c", header[bench_col]).group(1)):
             data["obs_runtime"].append(float("nan"))
             data["obs_speedup"].append(float("nan"))
           else:
-            data["obs_runtime"].append(float(row[bench_col_start+i]))
-            data["obs_speedup"].append(single_core_runtime/float(row[bench_col_start+i]))
+            data["obs_runtime"].append(float(row[bench_col]))
+            data["obs_speedup"].append(single_core_runtime/float(row[bench_col]))
+            bench_col += 1
           data["perf_lin_runtime"].append(single_core_runtime/i)
           data["greedy_runtime"].append(bound_runtime(single_core_runtime, parallelism, i))
           data["span_runtime"].append(single_core_runtime/parallelism)

@@ -10,6 +10,7 @@ def main():
   ap = argparse.ArgumentParser()
   ap.add_argument("--cilkscale", "-c", help="binary compiled with -fcilktool=cilkscale", required=True)
   ap.add_argument("--cilkscale-benchmark", "-b", help="binary compiled with -fcilktool=cilkscale-benchmark", required=True)
+  ap.add_argument("--cpu-counts", "-cpus", help="comma-separated list of cpu counts to use for benchmarking")
   ap.add_argument("--output-csv", "-ocsv", help="csv file for output data", default="out.csv")
   ap.add_argument("--output-plot", "-oplot", help="plot file dest", default="plot.pdf")
   ap.add_argument("--rows-to-plot", "-rplot", help="comma-separated list of rows to generate plots for (i.e. 1,2,3)", default="0")
@@ -17,6 +18,8 @@ def main():
 
   args = ap.parse_args()
   print(args)
+
+  cpu_counts = args.cpu_counts
 
   out_csv = args.output_csv
   out_plot = args.output_plot
@@ -30,7 +33,7 @@ def main():
     logger.warning("matplotlib required to generate plot.")
 
   # generate data and save to out_csv (defaults to out.csv)
-  run(bin_instrument, bin_bench, bin_args, out_csv)
+  run(bin_instrument, bin_bench, bin_args, out_csv, cpu_counts)
 
   if can_plot:
     # generate plot

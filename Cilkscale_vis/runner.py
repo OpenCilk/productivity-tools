@@ -64,12 +64,16 @@ def get_cpu_ordering():
     ret.append((x[2], x[0]))
   return ret
 
-def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
+def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv", cpu_counts=None):
   # get parallelism
   get_parallelism(bin_instrument, bin_args, out_csv)
 
   # get benchmark runtimes
   NCPUS = get_n_cpus()
+  if cpu_counts is None:
+    cpu_counts = range(1, NCPUS+1)
+  else:
+    cpu_counts = list(map(int, cpu_counts.split(",")))
 
   logger.info("Generating scalability data for " + str(NCPUS) + " cpus.")
 
@@ -79,12 +83,13 @@ def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
   results = dict()
   last_CPU = NCPUS+1
   for i in range(1, NCPUS+1):
-    try:
-      results[i] = run_on_p_workers(i, run_command)
-    except KeyboardInterrupt:
-      logger.info("Benchmarking stopped early at " + str(i-1) + " cpus.")
-      last_CPU = i
-      break
+    if i in cpu_counts:
+      try:
+        results[i] = run_on_p_workers(i, run_command)
+      except KeyboardInterrupt:
+        logger.info("Benchmarking stopped early at " + str(i-1) + " cpus.")
+        last_CPU = i
+        break
 
   new_rows = []
 
@@ -97,6 +102,8 @@ def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
 
     # join all the csv data
     for i in range(1, last_CPU):
+      if i not in cpu_counts:
+        continue
       with open(benchmark_tmp_output(i), "r") as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         row_num = 0
