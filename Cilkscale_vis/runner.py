@@ -1,8 +1,11 @@
+import logging
 import subprocess
 import sys
 import os
 import time
 import csv
+
+logger = logging.getLogger(__name__)
 
 # generate csv with parallelism numbers
 def get_parallelism(bin_instrument, bin_args, out_csv):
@@ -29,7 +32,7 @@ def run_on_p_workers(P, rcommand):
 
   time.sleep(0.1)
   rcommand = "taskset -c " + ",".join([str(p) for (p,m) in cpu_online]) + " " + rcommand
-  print(rcommand)
+  logger.info(rcommand)
   bench_out_csv = benchmark_tmp_output(P)
   proc = subprocess.Popen(['CILK_NWORKERS=' + str(P) + ' ' + "CILKSCALE_OUT=" + bench_out_csv + " " + rcommand], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   out,err=proc.communicate()
@@ -68,7 +71,7 @@ def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv"):
   # get benchmark runtimes
   NCPUS = get_n_cpus()
 
-  print("Generating scalability data for " + str(NCPUS) + " cpus.")
+  logger.info("Generating scalability data for " + str(NCPUS) + " cpus.")
 
   # this will be prepended with CILK_NWORKERS and CILKSCALE_OUT in run_on_p_workers
   # any tmp files will be destroyed

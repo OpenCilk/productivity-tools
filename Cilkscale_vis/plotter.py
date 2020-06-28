@@ -1,3 +1,4 @@
+import logging
 import csv
 
 can_plot = True
@@ -6,6 +7,8 @@ try:
   import matplotlib.pyplot as plt
 except ImportError:
   can_plot = False
+
+logger = logging.getLogger(__name__)
 
 # upper bound P-worker runtime for program with work T1 and parallelism PAR
 def bound_runtime(T1, PAR, P):
@@ -99,7 +102,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
 
   num_plots = len(all_data)
 
-  print("Generate plot")
+  logger.info("Generating plot")
   matplotlib.use('PDF')
   fig, axs = plt.subplots(nrows=num_plots, ncols=2, figsize=(12,6*num_plots), squeeze=False)
 

@@ -1,6 +1,10 @@
 import argparse
+import logging
+import sys
 from runner import run
 from plotter import plot, can_plot
+
+logger = logging.getLogger(sys.argv[0])
 
 def main():
   ap = argparse.ArgumentParser()
@@ -21,8 +25,9 @@ def main():
   bin_bench = args.cilkscale_benchmark
   bin_args = args.args
 
+  logging.basicConfig(level=logging.INFO)
   if not can_plot:
-    print("matplotlib required to generate plot.")
+    logger.warning("matplotlib required to generate plot.")
 
   # generate data and save to out_csv (defaults to out.csv)
   run(bin_instrument, bin_bench, bin_args, out_csv)
