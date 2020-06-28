@@ -1,6 +1,11 @@
 import csv
-import matplotlib
-import matplotlib.pyplot as plt
+
+can_plot = True
+try:
+  import matplotlib
+  import matplotlib.pyplot as plt
+except ImportError:
+  can_plot = False
 
 # upper bound P-worker runtime for program with work T1 and parallelism PAR
 def bound_runtime(T1, PAR, P):
@@ -96,7 +101,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
 
   print("Generate plot")
   matplotlib.use('PDF')
-  fig, axs = plt.subplots(nrows=num_plots, ncols=2, figsize=(12,6*num_plots))
+  fig, axs = plt.subplots(nrows=num_plots, ncols=2, figsize=(12,6*num_plots), squeeze=False)
 
   for r in range(num_plots):
     tag, data = all_data[r]
@@ -112,6 +117,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
     axs[r,0].set_xlabel("Num workers")
     axs[r,0].set_ylabel("Runtime")
     axs[r,0].set_title(tag + " execution time")
+    axs[r,0].set(xlim=[0,num_workers])
     axs[r,0].set_aspect(1.0/axs[r,0].get_data_ratio())
 
 
@@ -124,6 +130,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0]):
     axs[r,1].set_ylabel("Speedup")
     axs[r,1].set_title(tag + " speedup")
     axs[r,1].set(xlim=[0,num_workers], ylim=[0,num_workers])
+    axs[r,1].set_aspect(1.0/axs[r,1].get_data_ratio())
 
     axs[r,1].legend(loc="upper left")
 
