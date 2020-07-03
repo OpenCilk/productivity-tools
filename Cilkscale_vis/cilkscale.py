@@ -35,12 +35,13 @@ def main():
   # generate data and save to out_csv (defaults to out.csv)
   run(bin_instrument, bin_bench, bin_args, out_csv, cpu_counts)
 
-  if can_plot:
+  cpus = get_cpu_ordering()
+  if can_plot and cpus:
     # generate plot
     # (out_plot defaults to plot.pdf)
     # (rows defaults to just the last row in the csv)
     rows_to_plot = list(map(int, args.rows_to_plot.split(",")))
-    plot(out_csv, out_plot, rows_to_plot, get_cpu_ordering())
+    plot(out_csv, out_plot, rows_to_plot, cpus)
 
 if __name__ == '__main__':
   main()
