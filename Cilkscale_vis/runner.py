@@ -31,15 +31,21 @@ def run_on_p_workers(P, rcommand):
   cpu_online = cpu_ordering[:P]
 
   time.sleep(0.1)
-  rcommand = "taskset -c " + ",".join([str(p) for (p,m) in cpu_online]) + " " + rcommand
-  logger.info(rcommand)
+  if sys.platform != "darwin":
+    rcommand = "taskset -c " + ",".join([str(p) for (p,m) in cpu_online]) + " " + rcommand
+  logger.info('CILK_NWORKERS=' + str(P) + ' ' + rcommand)
   bench_out_csv = benchmark_tmp_output(P)
   proc = subprocess.Popen(['CILK_NWORKERS=' + str(P) + ' ' + "CILKSCALE_OUT=" + bench_out_csv + " " + rcommand], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   out,err=proc.communicate()
   err = str(err, "utf-8")
 
 def get_cpu_ordering():
-  out,err = run_command("lscpu --parse")
+  if sys.platform == "darwin":
+    # TODO: Replace with something that analyzes CPU configuration on Darwin
+    out,err = run_command("sysctl -n hw.physicalcpu_max")
+    return [(0, p) for p in range(0,int(str(out, 'utf-8')))]
+  else:
+    out,err = run_command("lscpu --parse")
 
   out = str(out, 'utf-8')
 
