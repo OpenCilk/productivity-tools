@@ -51,7 +51,11 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
       if row_num == 0:
         header = row
         # get num cpus (extracts num_cpus from, for example, "32c time (seconds)" )
-        num_cpus = int(row[-1].split()[0][:-1])
+        if re.match(r"\d+c", row[-1].split()[0]):
+          num_cpus = int(row[-1].split()[0][:-1])
+        else:
+          num_cpus = 0
+
         # find parallelism col and start of benchmark cols
         for i in range(len(row)):
           if row[i] == "burdened_parallelism":
@@ -69,7 +73,10 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
         # collect data from this row of the csv file
         tag = row[0]
         parallelism = float(row[par_col])
-        single_core_runtime = float(row[bench_col_start+1]) * min_count
+        if num_cpus == 0:
+          single_core_runtime = float("nan")
+        else:
+          single_core_runtime = float(row[bench_col_start+1]) * min_count
 
         data = {}
         data["num_workers"] = []
@@ -130,8 +137,10 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
 
     if cpus:
       num_workers = len(cpus)
-    else:
+    elif data["num_workers"]:
       num_workers = data["num_workers"][-1]
+    else:
+      continue
 
     axs[r,0].set_xlabel("Num workers")
     axs[r,0].set_ylabel("Runtime")
