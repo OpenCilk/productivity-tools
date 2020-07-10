@@ -7,10 +7,22 @@ import csv
 
 logger = logging.getLogger(__name__)
 
+def print_stdout_stderr(out, err, bin_instrument, bin_args):
+  print()
+  print(">> STDOUT (" + bin_instrument + " " + " ".join(bin_args) + ")")
+  print(str(out,"utf-8"), file=sys.stdout, end='')
+  print("<< END STDOUT")
+  print()
+  print(">> STDERR (" + bin_instrument + " " + " ".join(bin_args) + ")")
+  print(str(err,"utf-8"), file=sys.stderr, end='')
+  print("<< END STDERR")
+  print()
+  return
+
 # generate csv with parallelism numbers
 def get_parallelism(bin_instrument, bin_args, out_csv):
   out,err = run_command("CILKSCALE_OUT=" + out_csv + " " + bin_instrument + " " + " ".join(bin_args))
-  return
+  return out,err
 
 def run_command(cmd, asyn = False):
   proc = subprocess.Popen([cmd], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -72,7 +84,10 @@ def get_cpu_ordering():
 
 def run(bin_instrument, bin_bench, bin_args, out_csv="out.csv", cpu_counts=None):
   # get parallelism
-  get_parallelism(bin_instrument, bin_args, out_csv)
+  out,err = get_parallelism(bin_instrument, bin_args, out_csv)
+
+  # print execution output (stdout/stderr) as user feedback
+  print_stdout_stderr(out, err, bin_instrument, bin_args)
 
   # get benchmark runtimes
   NCPUS = get_n_cpus()
