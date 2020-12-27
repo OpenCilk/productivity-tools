@@ -25,10 +25,6 @@ extern CilkSanImpl_t CilkSanImpl;
 extern uintptr_t stack_low_addr;
 extern uintptr_t stack_high_addr;
 
-// Defined in print_addr.cpp
-// extern void read_proc_maps();
-extern void delete_proc_maps();
-extern void print_addr(FILE *f, void *a);
 // declared in cilksan; for debugging only
 #if CILKSAN_DEBUG
 extern enum EventType_t last_event;
@@ -116,25 +112,27 @@ static inline bool should_check() {
   return (instrumentation && (checking_disabled == 0));
 }
 
+// Stack structure for tracking whether the current execution is parallel, i.e.,
+// whether there are any unsynced spawns in the program execution.
 Stack_t<uint8_t> parallel_execution;
 Stack_t<bool> spbags_frame_skipped;
 
+// Stack structures for keeping track of MAAP (May Access Alias in Parallel)
+// information inserted by the compiler before a call.
 Stack_t<std::pair<csi_id_t, uint64_t>> MAAPs;
 Stack_t<unsigned> MAAP_counts;
 
 CILKSAN_API void __csan_set_MAAP(uint64_t val, csi_id_t id) {
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_set_MAAP(%ld, %ld)\n",
-            val, id);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_set_MAAP(%ld, %ld)\n", val, id);
   MAAPs.push_back(std::make_pair(id, val));
 }
 
 CILKSAN_API void __csan_get_MAAP(uint64_t *ptr, csi_id_t id, unsigned idx) {
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%x, %d, %d)\n",
-            ptr, id, idx);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%x, %d, %d)\n", ptr, id, idx);
   // We presume that __csan_get_MAAP runs early in the function, so if
   // instrumentation is disabled, it's disabled for the whole function.
   if (!should_check()) {
-    *ptr = /*NoModRef*/0;
+    *ptr = /*NoModRef*/ 0;
     return;
   }
 
@@ -144,7 +142,7 @@ CILKSAN_API void __csan_get_MAAP(uint64_t *ptr, csi_id_t id, unsigned idx) {
               MAAP_count);
     // The stack doesn't have MAAPs for us, so assume the worst: modref with
     // aliasing.
-    *ptr = /*ModRef*/3;
+    *ptr = /*ModRef*/ 3;
     return;
   }
 
@@ -155,7 +153,7 @@ CILKSAN_API void __csan_get_MAAP(uint64_t *ptr, csi_id_t id, unsigned idx) {
   } else {
     DBG_TRACE(DEBUG_CALLBACK, "  No MAAP found\n");
     // The stack doesn't have MAAPs for us, so assume the worst.
-    *ptr = /*ModRef*/3;
+    *ptr = /*ModRef*/ 3;
   }
 }
 
@@ -165,7 +163,6 @@ static void csan_destroy(void) {
   disable_checking();
   CilkSanImpl.deinit();
   fflush(stdout);
-  delete_proc_maps();
   if (call_pc) {
     free(call_pc);
     call_pc = nullptr;
@@ -209,7 +206,6 @@ CilkSanImpl_t::~CilkSanImpl_t() {
 }
 
 static void init_internal() {
-  // read_proc_maps();
   if (ERROR_FILE) {
     FILE *tmp = fopen(ERROR_FILE, "w+");
     if (tmp) err_io = tmp;
@@ -219,7 +215,6 @@ static void init_internal() {
   // Force the number of Cilk workers to be 1.
   char *e = getenv("CILK_NWORKERS");
   if (!e || 0 != strcmp(e, "1")) {
-    // fprintf(err_io, "Setting CILK_NWORKERS to be 1\n");
     if (setenv("CILK_NWORKERS", "1", 1)) {
       fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");
       exit(1);
@@ -227,11 +222,8 @@ static void init_internal() {
   }
 
   // Force reductions.
-  // XXX: Does not work with SP+ algorithm, but works with ordinary
-  // SP bags.
   e = getenv("CILK_FORCE_REDUCE");
   if (!e || 0 != strcmp(e, "1")) {
-    // fprintf(err_io, "Setting CILK_FORCE_REDUCE to be 1\n");
     if (setenv("CILK_FORCE_REDUCE", "1", 1)) {
       fprintf(err_io, "Error setting CILKS_FORCE_REDUCE to be 1\n");
       exit(1);
@@ -245,14 +237,9 @@ CILKSAN_API void __csi_init() {
 
   // We use the automatic deallocation of the CilkSanImpl top-level tool object
   // to shutdown and cleanup the tool at program termination.
-  // atexit(csan_destroy);
 
   init_internal();
-  // moved this later when we enter the first Cilk frame
-  // cilksan_init();
-  // enable_instrumentation();
   TOOL_INITIALIZED = true;
-  // fprintf(err_io, "tsan_init called.\n");
 }
 
 // Helper function to grow a map from CSI ID to program counter (PC).
@@ -266,7 +253,7 @@ static void grow_pc_table(uintptr_t *&table, csi_id_t &table_cap,
 }
 
 CILKSAN_API
-void __csan_unit_init(const char * const file_name,
+void __csan_unit_init(const char *const file_name,
                       const csan_instrumentation_counts_t counts) {
   CheckingRAII nocheck;
   // Grow the tables mapping CSI ID's to PC values.
@@ -386,9 +373,6 @@ CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
   parallel_execution.pop();
 
   CilkSanImpl.pop_stack_frame();
-
-  // XXX Let's focus on Cilk function for now; maybe put it back later
-  // cilksan_do_function_exit();
 }
 
 CILKSAN_API void __csan_before_loop(const csi_id_t loop_id,
@@ -521,6 +505,7 @@ CILKSAN_API void __csan_task(const csi_id_t task_id, const csi_id_t detach_id,
   // fprintf(stderr, "__csan_task: bp = %p, sp = %p\n",
   //         (uintptr_t)bp, (uintptr_t)sp);
 
+  // Update the low address of the stack
   if (stack_low_addr > (uintptr_t)sp)
     stack_low_addr = (uintptr_t)sp;
 
@@ -615,20 +600,10 @@ CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
   }
 }
 
-// Assuming __csan_load/store is inlined, the stack should look like this:
-//
-// -------------------------------------------
-// | user func that is about to do a memop   |
-// -------------------------------------------
-// | __csan_load/store                       |
-// -------------------------------------------
-// | backtrace (assume __csan_load/store and |
-// |            get_user_code_rip is inlined)|
-// -------------------------------------------
-//
-// In the user program, __csan_load/store are inlined
-// right before the corresponding read / write in the user code.
-// the return addr of __csan_load/store is the rip for the read / write
+// In the user program, __csan_load/store are called right before the
+// corresponding read / write in the user code.  The return addr of
+// __csan_load/store is the rip for the read / write.
+
 CILKSAN_API
 void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
                  load_prop_t prop) {
@@ -652,7 +627,7 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this read.
-  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size);
+  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -678,7 +653,7 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this read.
-  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size);
+  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -704,7 +679,7 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this write.
-  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size);
+  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -730,7 +705,7 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this write.
-  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size);
+  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -1113,7 +1088,7 @@ void *mmap(void *start, size_t len, int prot, int flags, int fd, off_t offset) {
     if (!(flags & MAP_ANONYMOUS))
       // This mmap is backed by a file.  Initialize the shadow memory with a
       // write to the page.
-      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len);
+      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len, 0);
   }
 
   return r;
@@ -1140,7 +1115,7 @@ void *mmap64(void *start, size_t len, int prot, int flags, int fd, off64_t offse
     if (!(flags & MAP_ANONYMOUS))
       // This mmap is backed by a file.  Initialize the shadow memory with a
       // write to the page.
-      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len);
+      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len, 0);
   }
 
   return r;
@@ -1164,7 +1139,7 @@ int munmap(void *start, size_t len) {
     auto first_page = pages_to_clear.lower_bound((uintptr_t)start);
     auto last_page = pages_to_clear.upper_bound((uintptr_t)start + len);
     for (auto curr_page = first_page; curr_page != last_page; ++curr_page) {
-      // TODO: Treat unmap more like free and record a write operation on the
+      // TODO: Treat munmap more like free and record a write operation on the
       // page.  Need to take care only to write pages that have content in the
       // shadow memory.  Otherwise, if the application mmap's more virtual
       // memory than physical memory, then the writes that model page unmapping
@@ -1205,7 +1180,7 @@ void *mremap(void *start, size_t old_len, size_t len, int flags, ...) {
     CheckingRAII nocheck;
     auto iter = pages_to_clear.find((uintptr_t)start);
     if (iter != pages_to_clear.end()) {
-      // TODO: Treat unmap more like free and record a write operation on the
+      // TODO: Treat mremap more like free and record a write operation on the
       // page.  Need to take care only to write pages that have content in the
       // shadow memory.  Otherwise, if the application mmap's more virtual
       // memory than physical memory, then the writes that model page unmapping

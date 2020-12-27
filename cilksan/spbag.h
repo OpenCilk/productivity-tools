@@ -14,110 +14,124 @@
 
 #define UNINIT_STACK_PTR ((uintptr_t)0LL)
 
+enum class BagType_t { SBag = 0, PBag = 1 };
+
+using version_t = uint32_t;
+
 class SPBagInterface {
+protected:
+  // Since the bags require 64-bits of storage at least anyway, allocate a
+  // 64-bit payload in the base class.  Use the topmost bit to record whether
+  // the bag is an S-bag or a P-bag, so that the bag type can be determined
+  // without an indirect function call.
+  static constexpr unsigned BAG_TYPE_SHIFT = 63;
+  static constexpr uintptr_t BAG_TYPE_MASK = (1UL << BAG_TYPE_SHIFT);
+  uintptr_t _payload;
+
+  uintptr_t getAvailablePayload() const { return _payload & ~BAG_TYPE_MASK; }
+
+  SPBagInterface(BagType_t type)
+      : _payload(static_cast<uintptr_t>(type) << BAG_TYPE_SHIFT) {}
+
 public:
-  // Note to self: base class must declare a virtual destructor; it does not
-  // have to be pure and must provide a definition.
+  // Note: Base class must declare a virtual destructor; it does not have to be
+  // pure and must provide a definition.
   // http://stackoverflow.com/questions/461203/when-to-use-virtual-destructors
   // <stackoverflow>/3336499/virtual-desctructor-on-pure-abstract-base-class
-  virtual ~SPBagInterface() { }
-  virtual bool is_SBag() const = 0;
-  virtual bool is_PBag() const = 0;
+  virtual ~SPBagInterface() {}
+
+  // Implement these methods directly on the base class, so that checking
+  // whether an arbitrary SPBagInterface object is an S-bag or a P-bag does not
+  // require an indirect function call.
+  __attribute__((always_inline)) bool is_SBag() const {
+    return (_payload & BAG_TYPE_MASK) == static_cast<uintptr_t>(BagType_t::SBag)
+                                             << BAG_TYPE_SHIFT;
+  }
+  __attribute__((always_inline)) bool is_PBag() const {
+    return (_payload & BAG_TYPE_MASK) == static_cast<uintptr_t>(BagType_t::PBag)
+                                             << BAG_TYPE_SHIFT;
+  }
+
+#if CILKSAN_DEBUG
   virtual uint64_t get_func_id() const = 0;
-  virtual uintptr_t get_rsp() const = 0;
-  virtual void set_rsp(uintptr_t stack_ptr) = 0;
-  virtual uint16_t get_version() const = 0;
+#endif
+  virtual version_t get_version() const = 0;
   virtual bool inc_version() = 0;
-  // virtual std::string get_call_context() = 0;
   virtual const call_stack_t *get_call_stack() const = 0;
   virtual void update_sibling(SPBagInterface *) = 0;
 };
 
-
-class SBag_t : public SPBagInterface {
+class SBag_t final : public SPBagInterface {
 private:
-  uint64_t _func_id;
-  // std::string _func_name;
-  // SBag of the parent function (whether this function is called or spawned)
-  // SPBagInterface *_parent;
-  static constexpr unsigned VERSION_SHIFT = 48;
-  static constexpr uintptr_t STACK_PTR_MASK = ((1UL << VERSION_SHIFT) - 1);
-  static constexpr uintptr_t VERSION_MASK = ~STACK_PTR_MASK;
-  uintptr_t _ver_stack_ptr;
+  // Use the base-class _payload to store the function ID and the version.  The
+  // low 32 bits of the _payload are used to store the version, so that the
+  // version can be updated with simple arithmetic on 32-bit registers.
+  // static constexpr unsigned FUNC_ID_SHIFT = 16;
+  // static constexpr uintptr_t VERSION_MASK = ((1UL << FUNC_ID_SHIFT) - 1);
+  // static constexpr uintptr_t FUNC_ID_MASK = ~VERSION_MASK & ~BAG_TYPE_MASK;
+  static constexpr unsigned VERSION_END_SHIFT = 32;
+  static constexpr uintptr_t VERSION_MASK = ((1UL << VERSION_END_SHIFT) - 1);
+
+  // The call stack of the function instantiation that corresponds with this
+  // S-bag.  The call stack is used to report the first endpoint of a race.
   call_stack_t _call_stack;
 
-  SBag_t() = delete;  // disable default constructor
+#if CILKSAN_DEBUG
+  uint64_t func_id;
+#endif
+
+  SBag_t() = delete; // disable default constructor
 
 public:
-  SBag_t(uint64_t id, const call_stack_t &call_stack) :
-      _func_id(id),
-      // _func_name(name),
-      // _parent(parent),
-      // _stack_ptr(UNINIT_STACK_PTR),
-      _ver_stack_ptr(UNINIT_STACK_PTR), _call_stack(call_stack) {
-    // std::cerr << "  Constructing SBag_t " << (void*)this << "\n";
+  SBag_t(uint64_t id, const call_stack_t &call_stack)
+      : SPBagInterface(BagType_t::SBag), _call_stack(call_stack)
+#if CILKSAN_DEBUG
+        ,
+        func_id(id)
+#endif
+  {
+    // // Use _payload to store the function ID
+    // _payload |= static_cast<uintptr_t>(id);
+
     WHEN_CILKSAN_DEBUG(debug_count++);
   }
 
+  // Note: The compiler will generate a default inline destructor, and it's
+  // better to let the compiler to that than define your own empty destructor.
+  // This is true even when the parent class has a virtual destructor.
+  // http://stackoverflow.com/questions/827196/virtual-default-destructors-in-c
 #if CILKSAN_DEBUG
   static long debug_count;
-  ~SBag_t() {
-    // std::cerr << "  Destructing SBag_t " << (void*)this << "\n";
-    debug_count--;
-  }
+  ~SBag_t() override { debug_count--; }
 #endif
 
   bool is_SBag() const { return true; }
   bool is_PBag() const { return false; }
 
-  uint64_t get_func_id() const { return _func_id; }
+#if CILKSAN_DEBUG
+  uint64_t get_func_id() const override {
+    // return static_cast<uint64_t>(getAvailablePayload()) >> FUNC_ID_SHIFT;
+    return func_id;
+  }
+#endif
 
-  uintptr_t get_rsp() const {
-    cilksan_assert((_ver_stack_ptr & STACK_PTR_MASK) != UNINIT_STACK_PTR);
-    return (_ver_stack_ptr & STACK_PTR_MASK);
+  version_t get_version() const override {
+    return static_cast<uint64_t>(getAvailablePayload()) & VERSION_MASK;
   }
-  void set_rsp(uintptr_t stack_ptr) {
-    // _stack_ptr = stack_ptr;
-    _ver_stack_ptr = (stack_ptr & STACK_PTR_MASK) |
-      (_ver_stack_ptr & VERSION_MASK);
-  }
-
-  uint16_t get_version() const {
-    // return _version;
-    return (_ver_stack_ptr >> VERSION_SHIFT);
-  }
-  bool inc_version() {
-    // std::cerr << "inc_version(): was version = " << _version << "\n";
-    // return (0 != ++_version);
-    uintptr_t new_version =
-      (_ver_stack_ptr & VERSION_MASK) + (1UL << VERSION_SHIFT);
-    _ver_stack_ptr = (_ver_stack_ptr & STACK_PTR_MASK) | new_version;
+  bool inc_version() override {
+    // uint16_t new_version =
+    //     static_cast<uint16_t>(getAvailablePayload() & VERSION_MASK) + 1;
+    version_t new_version =
+        static_cast<version_t>(getAvailablePayload() & VERSION_MASK) + 1;
+    _payload = (_payload & ~VERSION_MASK) | new_version;
     return (0 != new_version);
   }
 
-  const call_stack_t *get_call_stack() const {
+  const call_stack_t *get_call_stack() const override {
     return &_call_stack;
   }
 
-  // Note to self: Apparently the compiler will generate a default inline
-  // destructor, and it's better to let the compiler to that than define your
-  // own empty destructor.  This is true even when the parent class has a
-  // virtual destructor.
-  // http://stackoverflow.com/questions/827196/virtual-default-destructors-in-c
-  // ~SBag_t() { fprintf(stderr, "Called SBag destructor.\n"); }
-
-  /*
-  std::string get_call_context() {
-    std::string res;
-    if(_parent) {
-      res = _func_name + " called in \n" + _parent->get_call_context();
-    } else {
-      res = _func_name + "\n";
-    }
-    return res;
-  }*/
-
-  void update_sibling(SPBagInterface *) {
+  void update_sibling(SPBagInterface *) override {
     cilksan_assert(0 && "update_sibling called from SBag_t");
   }
 
@@ -159,57 +173,58 @@ public:
 static_assert(sizeof(SBag_t) >= sizeof(SBag_t::FreeNode_t),
               "Node structure in SBag free list must be as large as SBag.");
 
-class PBag_t : public SPBagInterface {
+class PBag_t final : public SPBagInterface {
 private:
-  // the SBag that corresponds to the function instance that holds this PBag
-  SPBagInterface *_sib_sbag = nullptr;
+  // Use the base-class _payload to store the pointer to the sibling SBag: the
+  // SBag that corresponds to the function instance that holds this PBag.
 
   PBag_t() = delete; // disable default constructor
 
+  // Helper method to get the pointer to the sibling SBag..
+  SPBagInterface *getSib() const {
+    return reinterpret_cast<SPBagInterface *>(getAvailablePayload());
+  }
+
 public:
-  PBag_t(SPBagInterface *sib) : _sib_sbag(sib) {
-    // std::cerr << "  Constructing PBag_t " << (void*)this << "\n";
-    WHEN_CILKSAN_DEBUG( debug_count++; );
+  PBag_t(SPBagInterface *sib) : SPBagInterface(BagType_t::PBag) {
+    WHEN_CILKSAN_DEBUG(debug_count++;);
+    _payload |= reinterpret_cast<uintptr_t>(sib);
   }
 
 #if CILKSAN_DEBUG
   static long debug_count;
-  ~PBag_t() {
-    // std::cerr << "  Destructing PBag_t " << (void*)this << "\n";
+  ~PBag_t() override {
     debug_count--;
-    _sib_sbag = nullptr;
+    update_sibling(nullptr);
   }
 #endif
 
   bool is_SBag() const { return false; }
   bool is_PBag() const { return true; }
-  uint64_t get_func_id() const { return _sib_sbag->get_func_id(); }
-  uintptr_t get_rsp() const { return _sib_sbag->get_rsp(); }
-  void set_rsp(uintptr_t stack_ptr) {
-     /* Should never happen; */
-    cilksan_assert(0 && "Called set_rsp on a Pbag");
+
+#if CILKSAN_DEBUG
+  uint64_t get_func_id() const override {
+    return getSib()->get_func_id();
   }
-  uint16_t get_version() const {
+#endif
+
+  // These methods should never be invoked on a P-bag.
+  version_t get_version() const override {
     cilksan_assert(0 && "Called get_version on a Pbag");
-    return _sib_sbag->get_version();
+    return getSib()->get_version();
   }
-  bool inc_version() {
+  bool inc_version() override {
     cilksan_assert(0 && "Called inc_version on a Pbag");
-    return _sib_sbag->inc_version();
+    return getSib()->inc_version();
   }
-  const call_stack_t *get_call_stack() const {
-     /* Should never happen; */
+  const call_stack_t *get_call_stack() const override {
     cilksan_assert(0 && "Called get_call_stack on a Pbag");
-    return _sib_sbag->get_call_stack();
+    return getSib()->get_call_stack();
   }
 
-  /*
-  std::string get_call_context() {
-    return _sib_sbag->get_call_context();
-  } */
-
-  void update_sibling(SPBagInterface *new_sib) {
-    _sib_sbag = new_sib;
+  void update_sibling(SPBagInterface *new_sib) override {
+    _payload =
+        (_payload & BAG_TYPE_MASK) | reinterpret_cast<uintptr_t>(new_sib);
   }
 
   // Simple free-list allocator to conserve space and time in managing

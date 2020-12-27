@@ -26,7 +26,8 @@ enum debug_levels {
     DEBUG_DEQUE      = 32,
     DEBUG_REDUCER    = 64,
     DEBUG_DISJOINTSET = 128,
-    DEBUG_STACK = 256
+    DEBUG_STACK      = 256,
+    DEBUG_SHADOWMEM  = 512,
 };
 
 #if CILKSAN_DEBUG
@@ -40,9 +41,17 @@ static int debug_level = 0;
 #define cilksan_assert(c)                                               \
   do { if (!(c)) { die("%s:%d assertion failure: %s\n",                 \
                        __FILE__, __LINE__, #c);} } while (0)
+#define cilksan_level_assert(level, c)                                         \
+  if (debug_level & level)                                                     \
+    do {                                                                       \
+      if (!(c)) {                                                              \
+        die("%s:%d assertion failure: %s\n", __FILE__, __LINE__, #c);          \
+      }                                                                        \
+  } while (0)
 #else
 #define WHEN_CILKSAN_DEBUG(stmt)
-#define cilksan_assert(c)
+#define cilksan_assert(c) __builtin_assume((c))
+#define cilksan_level_assert(level, c)
 #endif
 
 #if CILKSAN_DEBUG
@@ -55,10 +64,10 @@ enum EventType_t { ENTER_FRAME = 1, ENTER_HELPER = 2, SPAWN_PREPARE = 3,
 
 __attribute__((noreturn))
 void die(const char *fmt, ...);
-void debug_printf(int level, const char *fmt, ...);
+void debug_printf(const char *fmt, ...);
 
 #if CILKSAN_DEBUG
-#define DBG_TRACE(level,...) debug_printf(level, __VA_ARGS__)
+#define DBG_TRACE(level,...) if (debug_level & level) { debug_printf(__VA_ARGS__); }
 #else
 #define DBG_TRACE(level,...)
 #endif

@@ -21,13 +21,11 @@
   }
 */
 
-void debug_printf(int level, const char *fmt, ...) {
-  if(debug_level & level) {
-    std::va_list l;
-    va_start(l, fmt);
-    std::vfprintf(stderr, fmt, l);
-    va_end(l);
-  }
+void debug_printf(const char *fmt, ...) {
+  std::va_list l;
+  va_start(l, fmt);
+  std::vfprintf(stderr, fmt, l);
+  va_end(l);
 }
 
 // Print out the error message and exit

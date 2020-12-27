@@ -11,6 +11,8 @@
 #include "disjointset.h"
 #include "spbag.h"
 
+#define UNINIT_VIEW_ID ((uint64_t)0LL)
+
 // macro for address manipulation for shadow mem
 // used in all shadow memory implementations
 #define ADDR_TO_KEY(addr) ((uint64_t) ((uint64_t)addr >> 3))

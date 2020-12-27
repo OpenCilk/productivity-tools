@@ -31,16 +31,16 @@ private:
   int64_t _ref_count;
 
 #if CILKSAN_DEBUG
-  // HACK: The destructor calls a callback to free the set node, but in order
-  // for that callback to get the set node, it needs to call find_set which has
-  // assertions for ref counts. Thus, we don't dec our ref count if we're
-  // destructing.
+public:
+  int64_t _ID;
+private:
   bool _destructing;
 #endif
 
   __attribute__((always_inline))
   void assert_not_freed() const {
-    WHEN_CILKSAN_DEBUG(cilksan_assert(_destructing || _ref_count >= 0));
+    WHEN_CILKSAN_DEBUG(cilksan_level_assert(DEBUG_DISJOINTSET,
+                                            _destructing || _ref_count >= 0));
   }
 
   /*
@@ -75,9 +75,9 @@ private:
     cilksan_assert(old_parent != NULL);
 
     old_parent->dec_ref_count();
-    DBG_TRACE(DEBUG_DISJOINTSET, "DS %ld points to DS %ld\n", _ID, that->_ID);
-    DBG_TRACE(DEBUG_DISJOINTSET, "DS %ld refcnt %ld\n",
-              that->_ID, that->_ref_count);
+    DBG_TRACE(DEBUG_DISJOINTSET,
+              "DS %ld (refcnt %ld) points to DS %ld (refcnt %ld)\n", _ID,
+              _ref_count, that->_ID, that->_ref_count);
   }
 
   /*
@@ -111,30 +111,22 @@ private:
    * Note: Performs path compression along the way.
    *       The _set_parent field will be updated after the call.
    */
-  __attribute__((always_inline))
-  DisjointSet_t* find_set() {
+  __attribute__((always_inline)) DisjointSet_t *find_set() {
     assert_not_freed();
-    WHEN_CILKSAN_DEBUG(cilksan_assert(!_destructing));
+    WHEN_CILKSAN_DEBUG(cilksan_level_assert(DEBUG_DISJOINTSET, !_destructing));
 
     DisjointSet_t *node = this;
     node->assert_not_freed();
     DisjointSet_t *parent = node->_set_parent;
-    cilksan_assert(parent);
-    if (parent->_set_parent == parent)
+    cilksan_level_assert(DEBUG_DISJOINTSET, nullptr != parent);
+    // Fast test to see if node->_set_parent is the set.
+    if (__builtin_expect(parent->_set_parent == parent, true))
       return parent;
-    // // Fast test to see if node is the set.
-    // if (node->_set_parent == node)
-    //   return node;
 
-    // // Fast test to see if node->_set_parent is the set.
-    // DisjointSet_t *parent = node->_set_parent;
-    // cilksan_assert(parent);
-    // if (parent->_set_parent == parent)
-    //   return parent;
-
-    // Both fast tests failed.  Traverse the list to get to the set, and do path
+    // Fast test failed.  Traverse the list to get to the set, and do path
     // compression along the way.
 
+    // return find_set_helper(node);
     disjoint_set_list.lock();
 
 #if CILKSAN_DEBUG
@@ -144,17 +136,13 @@ private:
     while (node->_set_parent != node) {
       cilksan_assert(node->_set_parent);
 
-      // if (__builtin_expect(!_destructing || node != this, 1)) {
-      //   disjoint_set_list.push(node);
-      // }
-      // disjoint_set_list.push(node);
       DisjointSet_t *prev = node;
       node = node->_set_parent;
       if (node->_set_parent != node)
         disjoint_set_list.push(prev);
     }
 
-    cilksan_assert(tmp_ref_count == _ref_count);
+    WHEN_CILKSAN_DEBUG(cilksan_assert(tmp_ref_count == _ref_count));
 
     // node is now the root. Perform path compression by updating the parents
     // of each of the nodes we saw.
@@ -176,14 +164,11 @@ private:
   DisjointSet_t(DisjointSet_t &&) = delete;
 
 public:
+  explicit DisjointSet_t(DISJOINTSET_DATA_T node)
+      : _node(node), _set_node(node), _set_parent(NULL), _rank(0), _ref_count(0)
 #if CILKSAN_DEBUG
-  int64_t _ID;
-#endif
-
-  explicit DisjointSet_t(DISJOINTSET_DATA_T node) :
-      _node(node), _set_node(node), _set_parent(NULL), _rank(0), _ref_count(0)
-#if CILKSAN_DEBUG
-      , _destructing(false), _ID(DS_ID++)
+        ,
+        _ID(DS_ID++), _destructing(false)
 #endif
   {
     this->_set_parent = this;
@@ -198,11 +183,9 @@ public:
   static uint64_t nodes_created;
 #endif
 
-  static void (*dtor_callback)(DisjointSet_t *);
-
   ~DisjointSet_t() {
     WHEN_CILKSAN_DEBUG(_destructing = true);
-    dtor_callback(this);
+    delete _node;
     if (this->_set_parent != this) {
       // Otherwise, we run the risk of double freeing.
       _set_parent->dec_ref_count();
@@ -220,12 +203,12 @@ public:
 
   // Decrements the ref count.  Returns true if the node was deleted
   // as a result.
-  __attribute__((always_inline))
-  int64_t dec_ref_count(int64_t count = 1) {
+  __attribute__((always_inline)) int64_t dec_ref_count(int64_t count = 1) {
     assert_not_freed();
-    cilksan_assert(_ref_count >= count);
+    cilksan_level_assert(DEBUG_DISJOINTSET, _ref_count >= count);
     _ref_count -= count;
-    DBG_TRACE(DEBUG_DISJOINTSET, "DS %ld refcnt %ld\n", _ID, _ref_count);
+    DBG_TRACE(DEBUG_DISJOINTSET, "DS %ld dec_ref_count to %ld\n", _ID,
+              _ref_count);
     if (_ref_count == 0 || (_ref_count == 1 && this->_set_parent == this)) {
       delete this;
       return 0;
@@ -233,11 +216,12 @@ public:
     return _ref_count;
   }
 
-  __attribute__((always_inline))
-  void inc_ref_count(int64_t count = 1) {
+  __attribute__((always_inline)) void inc_ref_count(int64_t count = 1) {
     assert_not_freed();
 
     _ref_count += count;
+    DBG_TRACE(DEBUG_DISJOINTSET, "DS %ld inc_ref_count to %ld\n", _ID,
+              _ref_count);
   }
 
   __attribute__((always_inline))
@@ -358,11 +342,12 @@ public:
   class DJSAllocator {
     DJSlab_t *FreeSlabs = nullptr;
     DJSlab_t *FullSlabs = nullptr;
+
   public:
     DJSAllocator() {
       FreeSlabs =
-        new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE,
-                              sizeof(DJSlab_t))) DJSlab_t;
+          new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE, sizeof(DJSlab_t)))
+              DJSlab_t;
     }
 
     ~DJSAllocator() {
@@ -387,8 +372,9 @@ public:
       if (Slab->isFull()) {
         if (!Slab->Next)
           // Allocate a new slab if necessary.
-          FreeSlabs = new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE,
-                                            sizeof(DJSlab_t))) DJSlab_t;
+          FreeSlabs =
+              new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE, sizeof(DJSlab_t)))
+                  DJSlab_t;
         else {
           Slab->Next->Prev = nullptr;
           FreeSlabs = Slab->Next;
@@ -474,10 +460,6 @@ public:
   //   }
   // }
 };
-
-// Explicit instantiations for cilksan.
-template<>
-void (*DisjointSet_t<SPBagInterface *>::dtor_callback)(DisjointSet_t *);
 
 // template<>
 // DisjointSet_t<SPBagInterface *> *DisjointSet_t<SPBagInterface *>::free_list;
