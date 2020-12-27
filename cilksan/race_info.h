@@ -6,16 +6,20 @@
 #define CHECK_EQUIVALENT_STACKS false
 #endif
 
+// Forward declaration
+class SBag_t;
+
 // The context in which the access is made; user = user code, update = update
 // methods for a reducer object; reduce = reduce method for a reducer object
 enum AccContextType_t { USER = 1, UPDATE = 2, REDUCE = 3 };
-// W stands for write, R stands for read
+// Type of determinacy race.  W stands for write, R stands for read
 enum RaceType_t { RW_RACE = 1, WW_RACE = 2, WR_RACE = 3 };
-
+// Type of memory access: a read/write, an allocation, a free, or a realloc
 enum MAType_t : uint8_t { RW = 0, ALLOC, FREE, REALLOC, UNKNOWN = 255 };
 
-// Class for representing a frame on the call stack.
+// Type of frame on the call stack: a function call, a spawn, or a loop.
 enum CallType_t : uint8_t { CALL, SPAWN, LOOP };
+// Class representing the ID of a frame on the call stack.
 class CallID_t {
   // We assume that the top 16 bits of a CSI ID, after the sign bit, are unused.
   // Since CSI ID's identify instructions in the program, this assumption bounds
@@ -24,33 +28,44 @@ class CallID_t {
   static constexpr csi_id_t ID_MASK = ((1UL << TYPE_SHIFT) - 1);
   static constexpr csi_id_t UNKNOWN_CSI_CALL_ID = UNKNOWN_CSI_ID & ID_MASK;
 
+  // The ID of a frame on the call stack is encoded as a CSI ID and a type.
+  // This information is packed into a single 64-bit value.
   csi_id_t typed_id;
 
 public:
-  CallID_t() : typed_id((static_cast<csi_id_t>(CALL) << TYPE_SHIFT) |
-                        UNKNOWN_CSI_CALL_ID) {}
+  // Default constructor
+  CallID_t()
+      : typed_id((static_cast<csi_id_t>(CALL) << TYPE_SHIFT) |
+                 UNKNOWN_CSI_CALL_ID) {}
+  // Constructor
   CallID_t(CallType_t type, csi_id_t id)
-      : typed_id((static_cast<csi_id_t>(type) << TYPE_SHIFT) | (id & ID_MASK))
-  {}
+      : typed_id((static_cast<csi_id_t>(type) << TYPE_SHIFT) | (id & ID_MASK)) {
+  }
+  // Copy constructor
   CallID_t(const CallID_t &copy) : typed_id(copy.typed_id) {}
 
+  // Copy-assignment operator
   inline CallID_t &operator=(const CallID_t &copy) {
     typed_id = copy.typed_id;
     return *this;
   }
 
+  // Get the type of this call-stack frame
   inline CallType_t getType() const {
     return static_cast<CallType_t>(typed_id >> TYPE_SHIFT);
   }
 
+  // Get the CSI ID of this call-stack frame
   inline csi_id_t getID() const {
     return (typed_id & ID_MASK);
   }
 
+  // Returns true if this frame has an unknown ID.
   inline bool isUnknownID() const {
     return getID() == UNKNOWN_CSI_CALL_ID;
   }
 
+  // Operators for testing equality
   inline bool operator==(const CallID_t &that) const {
     return typed_id == that.typed_id;
   }
@@ -58,6 +73,7 @@ public:
     return !(*this == that);
   }
 
+  // Helper method for printing to an output stream
   inline friend
   std::ostream& operator<<(std::ostream &os, const CallID_t &id) {
     switch (id.getType()) {
@@ -75,7 +91,7 @@ public:
   }
 };
 
-// Specialized stack data structure for representing the call stack.  CilkSan
+// Specialized stack data structure for representing the call stack.  Cilksan
 // models the call stack using a singly-linked list with reference-counted
 // nodes.  When a race is recorded, the call stack for that race is preserved by
 // saving a pointer to the tail of the call stack.
@@ -85,11 +101,14 @@ class call_stack_node_t {
   friend class call_stack_t;
   friend class AccessLoc_t;
 
+  // A node on the call stack contains a frame, a pointer to a previous (parent)
+  // node, and a reference count.
   CallID_t id;
   call_stack_node_t *prev;
   int64_t ref_count;
 
 public:
+  // Constructor
   call_stack_node_t(CallID_t id, call_stack_node_t *prev = nullptr)
       // Set ref_count to 1, under the assumption that only call_stack_t
       // constructs nodes and will immediately set the tail pointer to point to
@@ -98,7 +117,7 @@ public:
     if (prev)
       prev->ref_count++;
   }
-
+  // Destructor
   ~call_stack_node_t() {
     cilksan_assert(!ref_count);
     if (prev) {
@@ -111,10 +130,12 @@ public:
     }
   }
 
+  // Get the ID of this call-stack frame
   inline const CallID_t &getCallID() const {
     return id;
   }
 
+  // Get the previous (parent) call-stack frame
   inline const call_stack_node_t *getPrev() const {
     return prev;
   }
@@ -123,6 +144,7 @@ public:
   // call_stack_node_t objects.
   static call_stack_node_t *free_list;
 
+  // Overloaded new operator for free-list allocator
   void *operator new(size_t size) {
     if (free_list) {
       call_stack_node_t *new_node = free_list;
@@ -132,12 +154,14 @@ public:
     return ::operator new(size);
   }
 
+  // Overloaded delete operator for free-list allocator
   void operator delete(void *ptr) {
     call_stack_node_t *del_node = reinterpret_cast<call_stack_node_t *>(ptr);
     del_node->prev = free_list;
     free_list = del_node;
   }
 
+  // Static method for cleaning up the free-list at the end of the program
   static void cleanup_freelist() {
     call_stack_node_t *node = free_list;
     call_stack_node_t *next = nullptr;
@@ -152,20 +176,19 @@ public:
 // Top-level class for the call stack.
 class call_stack_t {
   friend class AccessLoc_t;
+  friend class SBag_t;
 
-  // int size;
   call_stack_node_t *tail = nullptr;
 
 public:
+  // Default constructor
   call_stack_t() {}
-  call_stack_t(const call_stack_t &copy)
-      : // size(copy.size),
-        tail(copy.tail)
-  {
+  // Copy constructor
+  call_stack_t(const call_stack_t &copy) : tail(copy.tail) {
     if (tail)
       tail->ref_count++;
   }
-
+  // Destructor
   ~call_stack_t() {
     if (tail) {
       call_stack_node_t *old_tail = tail;
@@ -177,16 +200,18 @@ public:
     }
   }
 
+  // Get the end of this call stack
   inline const call_stack_node_t *getTail() const {
     return tail;
   }
 
+  // Test if the end of this call stack matches the given ID
   inline bool tailMatches(const CallID_t &id) const {
     return tail->id == id;
   }
 
+  // Copy-assignment operator
   inline call_stack_t &operator=(const call_stack_t &copy) {
-    // size = copy.size;
     call_stack_node_t *old_tail = tail;
     tail = copy.tail;
     if (tail)
@@ -199,8 +224,8 @@ public:
     return *this;
   }
 
+  // Move-assignment operator
   inline call_stack_t &operator=(const call_stack_t &&move) {
-    // size = copy.size;
     if (tail) {
       tail->ref_count--;
       if (!tail->ref_count)
@@ -214,33 +239,37 @@ public:
     tail = copy.tail;
   }
 
+  // Push a new call-stack frame onto this call stack
   inline void push(CallID_t id) {
-    // size++;
     call_stack_node_t *new_node = new call_stack_node_t(id, tail);
     // new_node has ref_count 1 and, if tail was not null, has incremented
     // tail's ref count.
     tail = new_node;
+    // Decrement the tail's ref_count, since we no longer point to that tail
     if (tail->prev) {
       cilksan_assert(tail->prev->ref_count > 1);
       tail->prev->ref_count--;
     }
-    // now the ref_count's should reflect the pointer structure.
+    // Now the ref_count's should reflect the pointer structure.
   }
 
+  // Pop the call-stack frame off the end of this call stack
   inline void pop() {
     cilksan_assert(tail);
-    // size--;
     call_stack_node_t *old_node = tail;
     tail = tail->prev;
+    // Increment the new tail's ref_count, since we now point to it
     if (tail)
       tail->ref_count++;
+    // Decrement the old tail's ref_count, and delete it if necessary
     cilksan_assert(old_node->ref_count > 0);
     old_node->ref_count--;
     if (!old_node->ref_count)
-      // Deleting the old node will decrement tail's ref count.
+      // Deleting the old node will decrement tail's ref_count.
       delete old_node;
   }
 
+  // Get the size of this call stack
   inline int size() const {
     call_stack_node_t *node = tail;
     int size = 0;
@@ -262,51 +291,38 @@ class AccessLoc_t {
 
   // Call stack for the access.
   call_stack_t call_stack;
-  // int64_t ref_count;
 
 public:
-  AccessLoc_t() : acc_loc(UNKNOWN_CSI_ID), type(MAType_t::UNKNOWN), call_stack()
-                  // , ref_count(1)
-  {}
+  // Default constructor
+  AccessLoc_t()
+      : acc_loc(UNKNOWN_CSI_ID), type(MAType_t::UNKNOWN), call_stack() {}
 
+  // Constructor
   AccessLoc_t(csi_id_t _acc_loc, MAType_t _type,
               const call_stack_t &_call_stack)
-      : acc_loc(_acc_loc), type(_type), call_stack(_call_stack)// , ref_count(1)
-        // call_stack(_call_stack.size()-1)
-  {}
+      : acc_loc(_acc_loc), type(_type), call_stack(_call_stack) {}
 
+  // Copy constructor
   AccessLoc_t(const AccessLoc_t &copy)
-      : acc_loc(copy.acc_loc), type(copy.type), call_stack(copy.call_stack)
-        // , ref_count(1)
-  {}
+      : acc_loc(copy.acc_loc), type(copy.type), call_stack(copy.call_stack) {}
 
-  AccessLoc_t(AccessLoc_t &&move)
-      : acc_loc(move.acc_loc), type(move.type)// , ref_count(1)
-  {
+  // Move constructor
+  AccessLoc_t(AccessLoc_t &&move) : acc_loc(move.acc_loc), type(move.type) {
     call_stack.overwrite(move.call_stack);
   }
 
+  // Destructor
   ~AccessLoc_t() {}
 
-  inline csi_id_t getID() const {
-    return acc_loc;
-  }
-
-  inline MAType_t getType() const {
-    return type;
-  }
-
+  // Accessors
+  inline csi_id_t getID() const { return acc_loc; }
+  inline MAType_t getType() const { return type; }
   inline const call_stack_node_t *getCallStack() const {
     return call_stack.tail;
   }
+  inline int getCallStackSize() const { return call_stack.size(); }
 
-  inline int getCallStackSize() const {
-    return call_stack.size();
-  }
-
-  inline bool isValid() const {
-    return acc_loc != UNKNOWN_CSI_ID;
-  }
+  inline bool isValid() const { return acc_loc != UNKNOWN_CSI_ID; }
 
   inline void invalidate() {
     dec_ref_count();
@@ -314,13 +330,14 @@ public:
     acc_loc = UNKNOWN_CSI_ID;
   }
 
+  // Copy assignment operator
   inline AccessLoc_t& operator=(const AccessLoc_t &copy) {
     acc_loc = copy.acc_loc;
     type = copy.type;
     call_stack = copy.call_stack;
     return *this;
   }
-
+  // Move assignment operator
   inline AccessLoc_t& operator=(AccessLoc_t &&move) {
     acc_loc = move.acc_loc;
     type = move.type;
@@ -328,6 +345,7 @@ public:
     return *this;
   }
 
+  // Methods for managing the reference count
   inline int64_t inc_ref_count(int64_t count = 1) {
     if (!call_stack.tail)
       return 0;
@@ -348,6 +366,7 @@ public:
     return call_stack.tail->ref_count;
   }
 
+  // Equality comparison operator
   inline bool operator==(const AccessLoc_t &that) const {
     if (acc_loc != that.acc_loc || type != that.type)
       return false;
@@ -365,17 +384,18 @@ public:
 #endif // CHECK_EQUIVALENT_STACKS
     return true;
   }
-
+  // Inequality comparison operator
   inline bool operator!=(const AccessLoc_t &that) const {
     return !(*this == that);
   }
 
-  // Used for tie-breaking in data structures
+  // Less-than comparison operator.  Used for tie-breaking in data structures
   inline bool operator<(const AccessLoc_t &that) const {
     return (acc_loc < that.acc_loc) || ((acc_loc == that.acc_loc) &&
                                         (type < that.type));
   }
 
+  // Output-stream operator
   inline friend
   std::ostream& operator<<(std::ostream &os, const AccessLoc_t &loc) {
     os << loc.acc_loc;
@@ -441,15 +461,14 @@ class RaceInfo_t {
   csi_id_t first_id;
   csi_id_t second_id;
   csi_id_t alloc_id;
-  uintptr_t addr;          // addr of memory location that got raced on
-  enum RaceType_t type;    // type of race
+  uintptr_t addr;       // addr of memory location that got raced on
+  enum RaceType_t type; // type of race
 
 public:
   RaceInfo_t(const AccessLoc_t &_first, const AccessLoc_t &_second,
              const AccessLoc_t &_alloc, uintptr_t _addr, enum RaceType_t _type)
       : first_id(_first.getID()), second_id(_second.getID()),
-        alloc_id(_alloc.getID()), addr(_addr), type(_type)
-  {}
+        alloc_id(_alloc.getID()), addr(_addr), type(_type) {}
 
   ~RaceInfo_t() {}
 

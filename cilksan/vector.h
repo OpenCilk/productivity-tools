@@ -83,7 +83,7 @@ public:
   void push_back(VECTOR_DATA_T val) {
     ++_head;
 
-    if (_head == _capacity)
+    if (__builtin_expect(_head == _capacity, false))
       _double_cap();
 
     _vector[_head] = val;

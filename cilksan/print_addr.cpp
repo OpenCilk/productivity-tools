@@ -2,11 +2,9 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-#include <vector>
 #include <unordered_map>
 #include <memory>
 
-#include <execinfo.h>
 #include <inttypes.h>
 #include <unistd.h>
 #include <signal.h>
@@ -48,122 +46,6 @@ uintptr_t *alloca_pc = nullptr;
 uintptr_t *allocfn_pc = nullptr;
 allocfn_prop_t *allocfn_prop = nullptr;
 uintptr_t *free_pc = nullptr;
-
-class ProcMapping_t {
-public:
-  unsigned long low,high;
-  std::string path;
-  ProcMapping_t(unsigned long low, unsigned long high, std::string path) :
-    low(low), high(high), path(path) { }
-};
-
-static std::vector<ProcMapping_t> *proc_maps = NULL;
-
-// declared in cilksan.cpp
-extern uintptr_t stack_low_addr;
-extern uintptr_t stack_high_addr;
-
-void read_proc_maps(void) {
-  if (proc_maps) return;
-
-  proc_maps = new std::vector<ProcMapping_t>;
-  pid_t pid = getpid();
-  char path[100];
-  snprintf(path, sizeof(path), "/proc/%d/maps", pid);
-  DBG_TRACE(DEBUG_BACKTRACE, "path = %s\n", path);
-  FILE *f = fopen(path, "r");
-  DBG_TRACE(DEBUG_BACKTRACE, "file = %p\n", f);
-  cilksan_assert(f);
-
-  char *lineptr = NULL;
-  size_t n;
-  while (1) {
-    ssize_t s = getline(&lineptr, &n, f);
-    if (s==-1) break;
-    DBG_TRACE(DEBUG_BACKTRACE, "Got %ld line = %s size = %ld\n",
-	      s, lineptr, n);
-    unsigned long start, end;
-    char c0, c1, c2, c3;
-    int off, major, minor, inode;
-    char *pathname;
-    sscanf(lineptr, "%lx-%lx %c%c%c%c %x %x:%x %x %ms",
-	   &start, &end, &c0, &c1, &c2, &c3, &off, &major, &minor,
-	   &inode, &pathname);
-    DBG_TRACE(DEBUG_BACKTRACE, " start = %lx end = %lx path = %s\n",
-	      start, end, pathname);
-    std::string paths(pathname ? pathname : "");
-    ProcMapping_t m(start, end, paths);
-    //if (paths.compare("[stack]") == 0) {
-    if (paths.find("[stack") != std::string::npos) {
-      cilksan_assert(stack_low_addr == 0);
-      stack_low_addr = start;
-      stack_high_addr = end;
-      DBG_TRACE(DEBUG_BACKTRACE, " stack = %lx--%lx\n", start, end);
-    }
-    free(pathname);
-    proc_maps->push_back(m);
-  }
-  DBG_TRACE(DEBUG_BACKTRACE, "proc_maps size = %lu\n", proc_maps->size());
-  fclose(f);
-  if (lineptr) free(lineptr);
-}
-
-void delete_proc_maps() {
-  if (proc_maps) {
-    delete proc_maps;
-    proc_maps = NULL;
-  }
-}
-
-static void get_info_on_inst_addr(uint64_t addr, int *line_no, std::string *file) {
-  for (unsigned int i=0; i < proc_maps->size(); i++) {
-    if ((*proc_maps)[i].low <= addr && addr < (*proc_maps)[i].high) {
-      unsigned long off = addr - (*proc_maps)[i].low;
-      const char *path = (*proc_maps)[i].path.c_str();
-      bool is_so = strcmp(".so", path+strlen(path)-3) == 0;
-      char *command;
-      if (is_so) {
-        asprintf(&command, "echo %lx | addr2line -e %s", off, path);
-      } else {
-        asprintf(&command, "echo %lx | addr2line -e %s", addr, path);
-      }
-      FILE *afile = popen(command, "r");
-      if (afile) {
-        size_t linelen = -1;
-        char *line = NULL;
-        if (getline(&line, &linelen, afile)>=0) {
-          const char *path = strtok(line, ":");
-          const char *lno = strtok(NULL, ":");
-          *file = std::string(path);
-          *line_no = atoi(lno);
-        }
-        if (line) free(line);
-        pclose(afile);
-      }
-      free(command);
-      return;
-    }
-  }
-  fprintf(stderr, "%lu is not in range\n", addr);
-}
-
-static std::string
-get_info_on_mem_access(uint64_t inst_addr
-                       /*, DisjointSet_t<SPBagInterface *> *d*/) {
-  std::string file;
-  int32_t line_no;
-  std::ostringstream convert;
-  // SPBagInterface *bag = d->get_node();
-  // racedetector_assert(bag);
-
-  get_info_on_inst_addr(inst_addr, &line_no, &file);
-  convert << std::hex << inst_addr << std::dec
-          << ": (" << file << ":" << std::dec << line_no << ")";
-  // XXX: Let's not do this for now; maybe come back later
-  //   // convert << "\t called at " << bag->get_call_context();
-
-  return convert.str();
-}
 
 typedef enum {
   LOAD_ACC,
@@ -253,7 +135,7 @@ static std::string get_info_on_alloca(const csi_id_t alloca_id,
     obj_src_loc = __csan_get_alloca_obj_source_loc(alloca_id / 2);
   }
 
-  convert << get_obj_info_str(obj_src_loc, d) << std::endl;
+  convert << get_obj_info_str(obj_src_loc, d) << "\n";
 
   uintptr_t pc = (alloca_id % 2) ? allocfn_pc[alloca_id / 2] :
                      alloca_pc[alloca_id / 2];
@@ -364,7 +246,7 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
     }
   }
   if (obj_src_loc) {
-    convert << std::endl << (endpoint == 0 ? "| " : "||")
+    convert << "\n" << (endpoint == 0 ? "| " : "||")
             << "       `-to variable ";
 
     convert << get_obj_info_str(obj_src_loc, d);
@@ -486,12 +368,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
                        const AccessLoc_t &second_inst,
                        const AccessLoc_t &alloc_inst,
                        const Decorator &d) const {
-  std::cerr << d.Bold() << d.Error() << "Race detected at address "
+  std::cerr << d.Bold() << d.Error() << "Race detected on location "
     // << (is_on_stack(race.addr) ? "stack address " : "address ")
-            << std::hex << addr << d.Default() << std::dec << std::endl;
-
-  // std::string first_acc_info = get_info_on_mem_access(race.first_inst);
-  // std::string second_acc_info = get_info_on_mem_access(race.second_inst);
+            << std::hex << addr << d.Default() << std::dec << "\n";
 
   std::string first_acc_info, second_acc_info;
   ACC_TYPE first_acc_type, second_acc_type;
@@ -569,39 +448,39 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
 
   // Print the two accesses involved in the race
   std::cerr << d.Bold() << "*  " << d.Default() << first_acc_info
-            << std::endl;
+            << "\n";
   for (int i = first_call_stack_size - 1;
        i >= divergence; --i)
     std::cerr << "+   " << get_info_on_call(first_call_stack[i].first, d)
-              << std::endl;
+              << "\n";
   std::cerr << "|" << d.Bold() << "* " << d.Default() << second_acc_info
-            << std::endl;
+            << "\n";
   for (int i = second_call_stack_size - 1;
        i >= divergence; --i)
     std::cerr << "|+  " << get_info_on_call(second_call_stack[i].first, d)
-              << std::endl;
+              << "\n";
 
   // Print the common calling context
   if (divergence > 0) {
-    std::cerr << "\\| Common calling context" << std::endl;
+    std::cerr << "\\| Common calling context" << "\n";
     for (int i = divergence - 1; i >= 0; --i)
       std::cerr << " +  " << get_info_on_call(first_call_stack[i].first, d)
-                << std::endl;
+                << "\n";
   }
 
   // Print the allocation
   if (alloc_inst.isValid()) {
-    std::cerr << "   Allocation context" << std::endl;
+    std::cerr << "   Allocation context" << "\n";
     const csi_id_t alloca_id = alloc_inst.getID();
-    std::cerr << "    " << get_info_on_alloca(alloca_id, d) << std::endl;
+    std::cerr << "    " << get_info_on_alloca(alloca_id, d) << "\n";
 
     auto alloc_call_stack = get_call_stack(alloc_inst);
     for (int i = alloc_inst.getCallStackSize() - 1; i >= 0; --i)
       std::cerr << "    " << get_info_on_call(alloc_call_stack[i].first, d)
-                << std::endl;
+                << "\n";
   }
 
-  std::cerr << std::endl;
+  std::cerr << "\n";
 
   // print_current_function_info();
 }
@@ -646,67 +525,16 @@ void CilkSanImpl_t::report_race(
   report_race(first_inst, second_inst, AccessLoc_t(), addr, race_type);
 }
 
-// Report viewread race
-void report_viewread_race(uint64_t first_inst, uint64_t second_inst,
-                          uint64_t addr) {
-  // For now, just print the viewread race
-  std::cerr << "Race detected at address "
-            << std::hex << addr << std::dec << std::endl;
-  std::string first_acc_info = get_info_on_mem_access(first_inst);
-  std::string second_acc_info = get_info_on_mem_access(second_inst);
-  std::cerr << "  read access at " << first_acc_info << std::endl;
-  std::cerr << "  write access at " << second_acc_info << std::endl;
-  std::cerr << std::endl;
-}
-
 int CilkSanImpl_t::get_num_races_found() {
   return races_found.size();
 }
 
 void CilkSanImpl_t::print_race_report() {
-  std::cerr << std::endl;
-  std::cerr << "Race detector detected total of " << get_num_races_found()
-            << " races." << std::endl;
-  std::cerr << "Race detector suppressed " << duplicated_races
-            << " duplicate error messages " << std::endl;
-  std::cerr << std::endl;
-}
-
-void print_addr(FILE *f, void *a) {
-  read_proc_maps();
-  unsigned long ai = (long)a;
-  DBG_TRACE(DEBUG_BACKTRACE, "print addr = %p.\n", a);
-
-  for (unsigned int i=0; i < proc_maps->size(); i++) {
-    DBG_TRACE(DEBUG_BACKTRACE, "Comparing %lu to %lu:%lu.\n",
-	      ai, (*proc_maps)[i].low, (*proc_maps)[i].high);
-    if ((*proc_maps)[i].low <= ai && ai < (*proc_maps)[i].high) {
-      unsigned long off = ai-(*proc_maps)[i].low;
-      const char *path = (*proc_maps)[i].path.c_str();
-      DBG_TRACE(DEBUG_BACKTRACE,
-		"%p is offset %lx in %s\n", a, off, path);
-      bool is_so = strcmp(".so", path+strlen(path)-3) == 0;
-      char *command;
-      if (is_so) {
-	asprintf(&command, "echo %lx | addr2line -e %s", off, path);
-      } else {
-	asprintf(&command, "echo %lx | addr2line -e %s", ai, path);
-      }
-      DBG_TRACE(DEBUG_BACKTRACE, "Doing system(\"%s\");\n", command);
-      FILE *afile = popen(command, "r");
-      if (afile) {
-	size_t linelen = -1;
-	char *line = NULL;
-	while (getline(&line, &linelen, afile)>=0) {
-	  fputs(line, f);
-	}
-	if (line) free(line);
-	pclose(afile);
-      }
-      free(command);
-      return;
-    }
-  }
-  fprintf(stderr, "%p is not in range\n", a);
+  std::cerr << "\n";
+  std::cerr << "Cilksan detected " << get_num_races_found()
+            << " distinct races.\n";
+  std::cerr << "Cilksan suppressed " << duplicated_races
+            << " duplicate race reports.\n";
+  std::cerr << "\n";
 }
 

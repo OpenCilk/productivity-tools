@@ -8,18 +8,15 @@
 
 #include "csan.h"
 
-#define UNINIT_VIEW_ID ((uint64_t)0LL)
-
 #include "cilksan.h"
 #include "dictionary.h"
 #include "disjointset.h"
 #include "frame_data.h"
-#include "shadow_mem.h"
 #include "shadow_mem_allocator.h"
 #include "stack.h"
 
-#define BT_OFFSET 1
-#define BT_DEPTH 2
+// Forward declarations
+class SimpleShadowMem;
 
 // Top-level class implementing the tool.
 class CilkSanImpl_t {
@@ -86,11 +83,8 @@ public:
   inline void advance_stack_frame(uintptr_t addr) {
     DBG_TRACE(DEBUG_STACK, "advance_stack_frame %p to include %p\n",
               *sp_stack.head(), addr);
-    if (addr < *sp_stack.head()) {
+    if (addr < *sp_stack.head())
       *sp_stack.head() = addr;
-      FrameData_t *cilk_func = frame_stack.head();
-      cilk_func->Sbag->get_node()->set_rsp(addr);
-    }
   }
 
   inline void pop_stack_frame() {
@@ -145,8 +139,10 @@ public:
   // void do_function_exit();
 
   // Memory actions
-  void do_read(const csi_id_t load_id, uintptr_t addr, size_t len);
-  void do_write(const csi_id_t store_id, uintptr_t addr, size_t len);
+  void do_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+               unsigned alignment);
+  void do_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+                unsigned alignment);
   void clear_shadow_memory(size_t start, size_t end);
   void record_alloc(size_t start, size_t size, csi_id_t alloca_id);
   void record_free(size_t start, size_t size, csi_id_t acc_id, MAType_t type);
@@ -178,10 +174,9 @@ private:
   inline void enter_detach_child(unsigned num_sync_reg);
   inline void return_from_detach(unsigned sync_reg);
   inline void complete_sync(unsigned sync_reg);
-  template<bool is_read>
-  inline void record_mem_helper(const csi_id_t acc_id,
-                                uintptr_t addr, size_t mem_size,
-                                bool on_stack);
+  template <bool is_read>
+  inline void record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
+                                size_t mem_size, unsigned alignment);
   // inline void print_current_function_info();
   inline void print_stats();
   static bool ColorizeReports();
@@ -205,7 +200,7 @@ private:
 
   // Shadow memory, which maps a memory address to its last reader and writer
   // and allocation.
-  Shadow_Memory shadow_memory;
+  SimpleShadowMem *shadow_memory = nullptr;
 
   // Use separate allocators for each dictionary in the shadow memory.
   MALineAllocator MAAlloc[3];

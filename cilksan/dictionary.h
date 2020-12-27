@@ -18,32 +18,34 @@ class MemoryAccess_t {
   static constexpr csi_id_t ID_MASK = ((1UL << TYPE_SHIFT) - 1);
   static constexpr csi_id_t TYPE_MASK = ((1UL << VERSION_SHIFT) - 1) & ~ID_MASK;
   static constexpr csi_id_t UNKNOWN_CSI_ACC_ID = UNKNOWN_CSI_ID & ID_MASK;
+
 public:
   DisjointSet_t<SPBagInterface *> *func = nullptr;
   csi_id_t ver_acc_id = UNKNOWN_CSI_ACC_ID;
 
+  // Default constructor
   MemoryAccess_t() {}
+  // Constructor
   MemoryAccess_t(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
                  MAType_t type)
       : func(func), ver_acc_id((acc_id & ID_MASK) |
-                               (static_cast<csi_id_t>(type) << TYPE_SHIFT))
-  {
+                               (static_cast<csi_id_t>(type) << TYPE_SHIFT)) {
     if (func) {
       func->inc_ref_count();
-      ver_acc_id |=
-        static_cast<csi_id_t>(func->get_node()->get_version()) << VERSION_SHIFT;
+      ver_acc_id |= static_cast<csi_id_t>(func->get_node()->get_version())
+                    << VERSION_SHIFT;
     }
   }
-
+  // Copy constructor
   MemoryAccess_t(const MemoryAccess_t &copy)
       : func(copy.func), ver_acc_id(copy.ver_acc_id) {
     if (func)
       func->inc_ref_count();
   }
-
+  // Move constructor
   MemoryAccess_t(const MemoryAccess_t &&move)
       : func(move.func), ver_acc_id(move.ver_acc_id) {}
-
+  // Destructor
   ~MemoryAccess_t() {
     if (func) {
       func->dec_ref_count();
@@ -51,10 +53,13 @@ public:
     }
   }
 
+  // Returns true if this MemoryAccess_t is valid, meaning it refers to an
+  // actual memory access in the program-under-test.
   bool isValid() const {
     return (nullptr != func);
   }
 
+  // Render this MemoryAccess_t invalid.
   void invalidate() {
     if (func)
       func->dec_ref_count();
@@ -62,10 +67,12 @@ public:
     ver_acc_id = UNKNOWN_CSI_ACC_ID;
   }
 
+  // Get the disjoint-set node for the function containing this memory access.
   DisjointSet_t<SPBagInterface *> *getFunc() const {
     return func;
   }
 
+  // Get the CSI ID for this memory access.
   csi_id_t getAccID() const {
     if ((ver_acc_id & ID_MASK) == UNKNOWN_CSI_ACC_ID)
       return UNKNOWN_CSI_ID;
@@ -82,10 +89,35 @@ public:
   AccessLoc_t getLoc() const {
     if (!isValid())
       return AccessLoc_t();
-    return AccessLoc_t(getAccID(), getAccType(),
-                       *func->get_node()->get_call_stack());
+    cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
+    return AccessLoc_t(
+        getAccID(), getAccType(),
+        *static_cast<SBag_t *>(func->get_node())->get_call_stack());
   }
 
+  // Set the fields of this MemoryAccess_t directly.  This method is used to
+  // avoid unnecessary updates to reference counts that may be incurred by using
+  // the copy contructor.
+  void set(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
+           MAType_t type) {
+    if (this->func != func) {
+      if (func)
+        func->inc_ref_count();
+      if (this->func)
+        this->func->dec_ref_count();
+      this->func = func;
+    }
+    ver_acc_id = (acc_id & ID_MASK) |
+                     (static_cast<csi_id_t>(type) << TYPE_SHIFT);
+    if (func) {
+      cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
+      ver_acc_id |= static_cast<csi_id_t>(
+                        static_cast<SBag_t *>(func->get_node())->get_version())
+                    << VERSION_SHIFT;
+    }
+  }
+
+  // Copy assignment
   MemoryAccess_t &operator=(const MemoryAccess_t &copy) {
     if (func != copy.func) {
       if (copy.func)
@@ -99,6 +131,7 @@ public:
     return *this;
   }
 
+  // Move assignment
   MemoryAccess_t &operator=(MemoryAccess_t &&move) {
     if (func)
       func->dec_ref_count();
@@ -182,112 +215,6 @@ public:
   //     }
   //   }
   // }
-};
-
-// typedef DisjointSet_t<SPBagInterface *> * value_type00;
-typedef MemoryAccess_t value_type00;
-// struct value_type00 {
-//   std::shared_ptr<MemoryAccess_t> val;
-
-//   value_type00() : val(nullptr) {}
-
-//   value_type00(MemoryAccess_t acc)
-//       : val(std::make_shared<MemoryAccess_t>(acc))
-//   {}
-
-//   value_type00(const value_type00 &copy)
-//       : val(copy.val)
-//   {}
-
-//   value_type00(const value_type00 &&move)
-//       : val(std::move(move.val))
-//   {}
-
-//   value_type00 &operator=(const value_type00 &copy) {
-//     val = copy.val;
-//     return *this;
-//   }
-
-//   value_type00 &operator=(const value_type00 &&move) {
-//     val = std::move(move.val);
-//     return *this;
-//   }
-
-//   bool isValid() const {
-//     return (bool)val && val->isValid();
-//   }
-
-//   void invalidate() {
-//     return val.reset();
-//   }
-
-//   bool operator==(const value_type00 &that) const {
-//     if (val == that.val)
-//       return true;
-//     if (((bool)val && !(bool)that.val) ||
-//         (!(bool)val && (bool)that.val))
-//       return false;
-//     return *val == *that.val;
-//   }
-
-//   bool operator!=(const value_type00 &that) const {
-//     return !(val == that.val);
-//   }
-// };
-
-class Dictionary {
-public:
-  static const value_type00 null_val;
-
-  virtual value_type00 *find(uint64_t key) {
-    return nullptr;
-  }
-
-  virtual value_type00 *find_group(uint64_t key, size_t max_size,
-                                   size_t &num_elems) {
-    num_elems = 1;
-    return nullptr;
-  }
-
-  virtual value_type00 *find_exact_group(uint64_t key, size_t max_size,
-                                         size_t &num_elems) {
-    num_elems = 1;
-    return nullptr;
-  }
-
-  virtual const value_type00 &operator[] (uint64_t key) {
-    return null_val;
-  }
-
-  virtual void erase(uint64_t key) {}
-
-  virtual void erase(uint64_t key, size_t size) {}
-
-  virtual bool includes(uint64_t key) {
-    return false;
-  }
-
-  virtual bool includes(uint64_t key, size_t size) {
-    return false;
-  }
-
-  virtual void insert(uint64_t key, const value_type00 &f) {}
-
-  virtual void insert(uint64_t key, size_t size, const value_type00 &f) {}
-  virtual void set(uint64_t key, size_t size, value_type00 &&f) {
-    insert(key, size, std::move(f));
-  }
-  virtual void insert_into_found_group(uint64_t key, size_t size,
-                                       value_type00 *dst,
-                                       value_type00 &&f) {
-    insert(key, size, std::move(f));
-  }
-
-  virtual ~Dictionary() {};
-
-  //uint32_t run_length(uint64_t key) {return 0;}
-
-  //virtual void destruct() {}
 };
 
 #endif  // __DICTIONARY__
