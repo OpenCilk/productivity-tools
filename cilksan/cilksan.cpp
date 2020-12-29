@@ -593,9 +593,9 @@ void CilkSanImpl_t::do_leave_end() {
 
 // called by do_read and do_write.
 template <bool is_read>
-inline void CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id,
-                                             uintptr_t addr, size_t mem_size,
-                                             unsigned alignment) {
+__attribute__((always_inline)) void
+CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
+                                 size_t mem_size, unsigned alignment) {
   // Do nothing for 0-byte accesses
   if (!mem_size)
     return;
@@ -603,24 +603,19 @@ inline void CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id,
   // Use fast path for small, statically aligned accesses.
   if (alignment &&
       alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-      mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-      shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
-    FrameData_t *f = frame_stack.head();
-    check_races_and_update_fast<is_read>(acc_id, MAType_t::RW, addr, mem_size,
-                                         f, *shadow_memory);
+      mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
+    // We're committed to using the fast-path check.  Update the occupied bits,
+    // and if that process discovers unoccupied entries, perform the check.
+    if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
+      FrameData_t *f = frame_stack.head();
+      check_races_and_update_fast<is_read>(acc_id, MAType_t::RW, addr, mem_size,
+                                           f, *shadow_memory);
+    }
     // Return early.
     return;
   }
 
-  // Set the occupancy bits in the shadow memory, to deduplicate memory accesses
-  // in the same strand at runtime.  If we find that all occupancy bits for
-  // [addr, addr+mem_size) are already set, then this access is redundant with a
-  // previous access in the same strand, and we can quit early.
-  if (!shadow_memory->setOccupied(is_read, addr, mem_size))
-    return;
-
   FrameData_t *f = frame_stack.head();
-
   check_races_and_update<is_read>(acc_id, MAType_t::RW, addr, mem_size, f,
                                   *shadow_memory);
 }
@@ -668,10 +663,16 @@ __attribute__((always_inline)) void check_races_and_update_with_write(
 // f: pointer to current frame on the shadow stack
 // shadow_memory: shadow memory recording memory access information
 template <bool is_read>
-__attribute__((always_inline)) void
-check_races_and_update(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                       size_t mem_size, FrameData_t *f,
-                       SimpleShadowMem &shadow_memory) {
+void check_races_and_update(const csi_id_t acc_id, MAType_t type,
+                            uintptr_t addr, size_t mem_size, FrameData_t *f,
+                            SimpleShadowMem &shadow_memory) {
+  // Set the occupancy bits in the shadow memory, to deduplicate memory accesses
+  // in the same strand at runtime.  If we find that all occupancy bits for
+  // [addr, addr+mem_size) are already set, then this access is redundant with a
+  // previous access in the same strand, and we can quit early.
+  if (!shadow_memory.setOccupied(is_read, addr, mem_size))
+    return;
+
   if (is_read)
     check_races_and_update_with_read(acc_id, addr, mem_size, f, shadow_memory);
   else
