@@ -480,7 +480,7 @@ CILKSAN_API void __csan_detach(const csi_id_t detach_id,
   CheckingRAII nocheck;
   DBG_TRACE(DEBUG_CALLBACK, "__csan_detach(%ld)\n",
             detach_id);
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = SPAWN_PREPARE);
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 

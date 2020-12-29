@@ -50,7 +50,7 @@ static int debug_level = 0;
   } while (0)
 #else
 #define WHEN_CILKSAN_DEBUG(stmt)
-#define cilksan_assert(c) __builtin_assume((c))
+#define cilksan_assert(c)
 #define cilksan_level_assert(level, c)
 #endif
 

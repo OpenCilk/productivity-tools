@@ -68,7 +68,7 @@ public:
   // Crashes the program if lock() is called a second time before unlock().
   __attribute__((always_inline))
   void lock() {
-    cilksan_assert(!_locked);
+    WHEN_CILKSAN_DEBUG(cilksan_assert(!_locked));
 
 #if CILKSAN_DEBUG
     _locked = true;
@@ -77,7 +77,7 @@ public:
 
   __attribute__((always_inline))
   void unlock() {
-    cilksan_assert(_locked);
+    WHEN_CILKSAN_DEBUG(cilksan_assert(_locked));
 
 #if CILKSAN_DEBUG
     _locked = false;
@@ -89,7 +89,7 @@ public:
   // program.
   __attribute__((always_inline))
   void free_list() {
-    cilksan_assert(!_locked);
+    WHEN_CILKSAN_DEBUG(cilksan_assert(!_locked));
 
     if (_list != NULL)
       free(_list);
@@ -98,9 +98,9 @@ public:
   // Adds an element to the end of the list.
   __attribute__((always_inline))
   void push(void *obj) {
-    cilksan_assert(_locked);
+    WHEN_CILKSAN_DEBUG(cilksan_assert(_locked));
 
-    if (__builtin_expect(_length == _capacity, 0)) {
+    if (__builtin_expect(_length == _capacity, false)) {
       _capacity *= 2;
       _list = (void**)realloc(_list, _capacity * sizeof(void*));
     }

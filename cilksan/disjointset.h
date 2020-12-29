@@ -224,15 +224,13 @@ public:
               _ref_count);
   }
 
-  __attribute__((always_inline))
-  DISJOINTSET_DATA_T get_node() const {
+  __attribute__((always_inline)) DISJOINTSET_DATA_T get_node() const {
     assert_not_freed();
 
     return _node;
   }
 
-  __attribute__((always_inline))
-  DISJOINTSET_DATA_T get_set_node() {
+  __attribute__((always_inline)) DISJOINTSET_DATA_T get_set_node() {
     assert_not_freed();
 
     return find_set()->_set_node;

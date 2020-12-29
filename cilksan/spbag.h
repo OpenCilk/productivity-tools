@@ -52,9 +52,7 @@ public:
                                              << BAG_TYPE_SHIFT;
   }
 
-#if CILKSAN_DEBUG
   virtual uint64_t get_func_id() const = 0;
-#endif
   virtual version_t get_version() const = 0;
   virtual bool inc_version() = 0;
   virtual const call_stack_t *get_call_stack() const = 0;
@@ -108,12 +106,14 @@ public:
   bool is_SBag() const { return true; }
   bool is_PBag() const { return false; }
 
-#if CILKSAN_DEBUG
   uint64_t get_func_id() const override {
     // return static_cast<uint64_t>(getAvailablePayload()) >> FUNC_ID_SHIFT;
+#if CILKSAN_DEBUG
     return func_id;
-  }
+#else
+    return 0;
 #endif
+  }
 
   version_t get_version() const override {
     return static_cast<uint64_t>(getAvailablePayload()) & VERSION_MASK;
@@ -202,11 +202,13 @@ public:
   bool is_SBag() const { return false; }
   bool is_PBag() const { return true; }
 
-#if CILKSAN_DEBUG
   uint64_t get_func_id() const override {
+#if CILKSAN_DEBUG
     return getSib()->get_func_id();
-  }
+#else
+    return 0;
 #endif
+  }
 
   // These methods should never be invoked on a P-bag.
   version_t get_version() const override {

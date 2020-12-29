@@ -193,9 +193,13 @@ private:
   // Data associated with the stack of Cilk frames or spawned C frames.
   // head contains the SP bags for the function we are currently processing
   Stack_t<FrameData_t> frame_stack;
+  // Call stack for the current instruction
   call_stack_t call_stack;
+  // Stack maintaining the stack pointer SP, and specifically, the range of
+  // stack memory used by each function instantiation.
   Stack_t<uintptr_t> sp_stack;
 
+  // Flag for whether the next loop iteration is the first iteration of a loop
   bool start_new_loop = false;
 
   // Shadow memory, which maps a memory address to its last reader and writer
@@ -235,6 +239,27 @@ private:
 
   std::unordered_map<size_t, uint64_t> strand_num_reads_checked;
   std::unordered_map<size_t, uint64_t> strand_num_writes_checked;
+
+  void collect_read_stat(size_t mem_size) {
+    ++total_reads_checked;
+    if (!num_reads_checked.count(mem_size))
+      num_reads_checked.insert(std::make_pair(mem_size, 0));
+    ++num_reads_checked[mem_size];
+
+    if (!strand_num_reads_checked.count(mem_size))
+      strand_num_reads_checked.insert(std::make_pair(mem_size, 0));
+    ++strand_num_reads_checked[mem_size];
+  }
+  void collect_write_stat(size_t mem_size) {
+    ++total_writes_checked;
+    if (!num_writes_checked.count(mem_size))
+      num_writes_checked.insert(std::make_pair(mem_size, 0));
+    ++num_writes_checked[mem_size];
+
+    if (!strand_num_writes_checked.count(mem_size))
+      strand_num_writes_checked.insert(std::make_pair(mem_size, 0));
+    ++strand_num_writes_checked[mem_size];
+  }
 
   void update_strand_stats() {
     if (!collect_stats)
