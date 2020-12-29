@@ -10,6 +10,7 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "dictionary.h"
+#include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "vector.h"
 
@@ -168,107 +169,137 @@ private:
   // Custom memory allocator for lines.
   static MALineAllocator &MAAlloc;
 
-  // Data structure for a line of memory locations.  A line is represented as an
-  // array of MemoryAccess_t objects, where each object represents an aligned
-  // set of (1 << LgGrainsize) bytes.  LgGrainsize must be in
-  // [0, LG_LINE_SIZE].
-  struct Line_t {
-  private:
-    static const uintptr_t MemAccsMask = (1UL << 48) - 1;
-    static const uintptr_t NumNonNullAccsRShift = 48;
+  struct MALineMethods {
+    __attribute__((always_inline)) static MemoryAccess_t *
+    allocate(size_t size) {
+      return MAAlloc.allocate(size);
+    }
+    __attribute__((always_inline)) static bool deallocate(MemoryAccess_t *Ptr) {
+      return MAAlloc.deallocate(Ptr);
+    }
+    __attribute__((always_inline)) static bool
+    isValid(const MemoryAccess_t &MA) {
+      return MA.isValid();
+    }
+    __attribute__((always_inline)) static void invalidate(MemoryAccess_t &MA) {
+      MA.invalidate();
+    }
+  };
+
+  struct MASetFn {
+    DisjointSet_t<SPBagInterface *> *func;
+    csi_id_t acc_id;
+    MAType_t type;
+
+    __attribute__((always_inline)) void operator()(MemoryAccess_t &MA) const {
+      MA.set(func, acc_id, type);
+    }
+    __attribute__((always_inline)) void checkValid() const {
+      cilksan_assert(func && "Invalid MASetFn");
+    }
+  };
+
+  template <typename LineData_t, class LineDataMethods, class LineDataSetFn>
+  struct AbstractLine_t {
+    // Expose template parameters for other classes to refer to
+    using DataType = LineData_t;
+    using DataMethods = LineDataMethods;
+    using DataSetFn = LineDataSetFn;
+
+  protected:
+    static const uintptr_t DataMask = (1UL << 48) - 1;
+    static const uintptr_t NumNonNullElsRShift = 48;
     static const uintptr_t LgGrainsizeRShift = 48 + 8;
     static const uintptr_t MetadataFieldMask = (1UL << 8) - 1;
-    // The array of MemoryAccess_t objects in this line is allocated lazily.
-    MemoryAccess_t *MemAccsPtr = nullptr;
+    // The array of LineData_t objects in this line is allocated lazily.
+    LineData_t *DataPtr = nullptr;
 
-    __attribute__((always_inline)) MemoryAccess_t *getMemAccs() const {
-      return reinterpret_cast<MemoryAccess_t *>(
-          reinterpret_cast<uintptr_t>(MemAccsPtr) & MemAccsMask);
+    __attribute__((always_inline)) LineData_t *getData() const {
+      return reinterpret_cast<LineData_t *>(
+          reinterpret_cast<uintptr_t>(DataPtr) & DataMask);
     }
-    __attribute__((always_inline)) void setMemAccs(MemoryAccess_t *newMemAccs) {
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          (reinterpret_cast<uintptr_t>(MemAccsPtr) & ~MemAccsMask) |
-          (reinterpret_cast<uintptr_t>(newMemAccs) & MemAccsMask));
+    __attribute__((always_inline)) void setData(LineData_t *newData) {
+      DataPtr = reinterpret_cast<LineData_t *>(
+          (reinterpret_cast<uintptr_t>(DataPtr) & ~DataMask) |
+          (reinterpret_cast<uintptr_t>(newData) & DataMask));
     }
     __attribute__((always_inline)) void
     setLgGrainsize(unsigned newLgGrainsize) {
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          (reinterpret_cast<uintptr_t>(MemAccsPtr) &
+      DataPtr = reinterpret_cast<LineData_t *>(
+          (reinterpret_cast<uintptr_t>(DataPtr) &
            ~(MetadataFieldMask << LgGrainsizeRShift)) |
           (static_cast<uintptr_t>(newLgGrainsize) << LgGrainsizeRShift));
     }
-    __attribute__((always_inline)) void scaleNumNonNullAccs(int replFactor) {
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          (reinterpret_cast<uintptr_t>(MemAccsPtr) &
-           ~(MetadataFieldMask << NumNonNullAccsRShift)) |
-          ((reinterpret_cast<uintptr_t>(MemAccsPtr) &
-            (MetadataFieldMask << NumNonNullAccsRShift)) *
+    __attribute__((always_inline)) void scaleNumNonNullEls(int replFactor) {
+      DataPtr = reinterpret_cast<LineData_t *>(
+          (reinterpret_cast<uintptr_t>(DataPtr) &
+           ~(MetadataFieldMask << NumNonNullElsRShift)) |
+          ((reinterpret_cast<uintptr_t>(DataPtr) &
+            (MetadataFieldMask << NumNonNullElsRShift)) *
            replFactor));
     }
 
   public:
-    Line_t(unsigned LgGrainsize) {
+    AbstractLine_t(unsigned LgGrainsize) {
       cilksan_assert(LgGrainsize >= 0 && LgGrainsize <= LG_LINE_SIZE &&
                      "Invalid grainsize for Line_t");
       setLgGrainsize(LgGrainsize);
     }
-    Line_t() {
-      // By default, a Line_t contains entries of (1 << LG_LINE_SIZE) bytes.
+    AbstractLine_t() {
+      // By default, a AbstractLine_t contains entries of (1 << LG_LINE_SIZE) bytes.
       setLgGrainsize(LG_LINE_SIZE);
     }
-    ~Line_t() {
+    ~AbstractLine_t() {
       if (isMaterialized()) {
-        MAAlloc.deallocate(getMemAccs());
-        MemAccsPtr = nullptr;
+        LineDataMethods::deallocate(getData());
+        DataPtr = nullptr;
       }
     }
 
     __attribute__((always_inline)) unsigned getLgGrainsize() const {
       return static_cast<unsigned>(
-          (reinterpret_cast<uintptr_t>(MemAccsPtr) >> LgGrainsizeRShift) &
+          (reinterpret_cast<uintptr_t>(DataPtr) >> LgGrainsizeRShift) &
           MetadataFieldMask);
     }
 
     __attribute__((always_inline)) bool isEmpty() const {
-      return noNonNullAccs();
+      return noNonNullEls();
     }
 
-    __attribute__((always_inline)) int getNumNonNullAccs() const {
+    __attribute__((always_inline)) int getNumNonNullEls() const {
       return static_cast<int>(
-          (reinterpret_cast<uintptr_t>(MemAccsPtr) >> NumNonNullAccsRShift) &
+          (reinterpret_cast<uintptr_t>(DataPtr) >> NumNonNullElsRShift) &
           MetadataFieldMask);
     }
-    __attribute__((always_inline)) bool noNonNullAccs() const {
-      return (0 == (reinterpret_cast<uintptr_t>(MemAccsPtr) &
-                    (MetadataFieldMask << NumNonNullAccsRShift)));
+    __attribute__((always_inline)) bool noNonNullEls() const {
+      return (0 == (reinterpret_cast<uintptr_t>(DataPtr) &
+                    (MetadataFieldMask << NumNonNullElsRShift)));
     }
-    __attribute__((always_inline)) void zeroNumNonNullAccs() {
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          reinterpret_cast<uintptr_t>(MemAccsPtr) &
-          ~(MetadataFieldMask << NumNonNullAccsRShift));
+    __attribute__((always_inline)) void zeroNumNonNullEls() {
+      DataPtr = reinterpret_cast<LineData_t *>(
+          reinterpret_cast<uintptr_t>(DataPtr) &
+          ~(MetadataFieldMask << NumNonNullElsRShift));
     }
-    __attribute__((always_inline)) void incNumNonNullAccs() {
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          reinterpret_cast<uintptr_t>(MemAccsPtr) +
-          (1UL << NumNonNullAccsRShift));
+    __attribute__((always_inline)) void incNumNonNullEls() {
+      DataPtr = reinterpret_cast<LineData_t *>(
+          reinterpret_cast<uintptr_t>(DataPtr) + (1UL << NumNonNullElsRShift));
     }
-    __attribute__((always_inline)) void decNumNonNullAccs() {
-      cilksan_assert(!noNonNullAccs() && "Decrementing NumNonNullAccs below 0");
-      MemAccsPtr = reinterpret_cast<MemoryAccess_t *>(
-          reinterpret_cast<uintptr_t>(MemAccsPtr) -
-          (1UL << NumNonNullAccsRShift));
+    __attribute__((always_inline)) void decNumNonNullEls() {
+      cilksan_assert(!noNonNullEls() && "Decrementing NumNonNullEls below 0");
+      DataPtr = reinterpret_cast<LineData_t *>(
+          reinterpret_cast<uintptr_t>(DataPtr) - (1UL << NumNonNullElsRShift));
     }
 
-    // Check if the array of MemoryAccess_t's has been allocated.
+    // Check if the array of LineData_t's has been allocated.
     __attribute__((always_inline)) bool isMaterialized() const {
-      return (nullptr != getMemAccs());
+      return (nullptr != getData());
     }
 
-    // Allocate the array of MemoryAccess_t's for this line.
+    // Allocate the array of LineData_t's for this line.
     void materialize() {
-      cilksan_assert(!getMemAccs() && "MemAccs already materialized.");
-      int NumMemAccs = (1 << LG_LINE_SIZE) / (1 << getLgGrainsize());
-      setMemAccs(MAAlloc.allocate(NumMemAccs));
+      cilksan_assert(!getData() && "Data already materialized.");
+      int NumData = (1 << LG_LINE_SIZE) / (1 << getLgGrainsize());
+      setData(LineDataMethods::allocate(NumData));
     }
 
     // Reduce the grainsize of this line to newLgGrainsize, which must fall
@@ -276,45 +307,46 @@ private:
     void refine(unsigned newLgGrainsize) {
       cilksan_assert(newLgGrainsize < getLgGrainsize() &&
                      "Invalid grainsize for refining Line_t.");
-      // If MemAccs hasn't been materialzed yet, then just update LgGrainsize.
+      // If Data hasn't been materialzed yet, then just update LgGrainsize.
       if (!isMaterialized()) {
         setLgGrainsize(newLgGrainsize);
         return;
       }
 
-      MemoryAccess_t *MemAccs = getMemAccs();
-      // Create a new array of MemoryAccess_t's.
-      int newNumMemAccs = (1 << LG_LINE_SIZE) / (1 << newLgGrainsize);
-      MemoryAccess_t *NewMemAccs = MAAlloc.allocate(newNumMemAccs);
+      LineData_t *Data = getData();
+      // Create a new array of LineData_t's.
+      int newNumDataEls = (1 << LG_LINE_SIZE) / (1 << newLgGrainsize);
+      LineData_t *NewData = LineDataMethods::allocate(newNumDataEls);
 
-      // Copy the old MemoryAccess_t's into the new array with replication.
-      if (!noNonNullAccs()) {
+      // Copy the old LineData_t's into the new array with replication.
+      if (!noNonNullEls()) {
         unsigned LgGrainsize = getLgGrainsize();
-        int oldNumMemAccs = (1 << LG_LINE_SIZE) / (1 << LgGrainsize);
+        int oldNumDataEls = (1 << LG_LINE_SIZE) / (1 << LgGrainsize);
         int replFactor = (1 << LgGrainsize) / (1 << newLgGrainsize);
-        for (int i = 0; i < oldNumMemAccs; ++i)
-          if (MemAccs[i].isValid())
+        for (int i = 0; i < oldNumDataEls; ++i)
+          if (LineDataMethods::isValid(Data[i]))
             for (int j = replFactor * i; j < replFactor * (i + 1); ++j)
-              NewMemAccs[j] = MemAccs[i];
+              NewData[j] = Data[i];
 #if CILKSAN_DEBUG
-        int oldNumNonNullAccs = getNumNonNullAccs();
+        int oldNumNonNullEls = getNumNonNullEls();
 #endif
-        scaleNumNonNullAccs(replFactor);
-        cilksan_assert(oldNumNonNullAccs * replFactor == getNumNonNullAccs());
+        scaleNumNonNullEls(replFactor);
+        WHEN_CILKSAN_DEBUG(cilksan_assert(oldNumNonNullEls * replFactor ==
+                                          getNumNonNullEls()));
       }
 
-      // Replace the old MemAccs array and LgGrainsize value.
-      MAAlloc.deallocate(MemAccs);
-      setMemAccs(NewMemAccs);
+      // Replace the old Data array and LgGrainsize value.
+      LineDataMethods::deallocate(Data);
+      setData(NewData);
       setLgGrainsize(newLgGrainsize);
     }
 
-    // Reset this Line_t object with a default LgGrainsize and no valid
-    // MemoryAccess_t's.
+    // Reset this AbstractLine_t object with a default LgGrainsize and no valid
+    // LineData_t's.
     void reset() {
       if (isMaterialized()) {
-        MAAlloc.deallocate(getMemAccs());
-        MemAccsPtr = nullptr;
+        LineDataMethods::deallocate(getData());
+        DataPtr = nullptr;
       }
       setLgGrainsize(LG_LINE_SIZE);
     }
@@ -324,25 +356,24 @@ private:
       return byte >> getLgGrainsize();
     }
 
-    // Access the MemoryAccess_t object in this line for the byte address.
-    __attribute__((always_inline)) MemoryAccess_t &operator[](uintptr_t byte) {
+    // Access the LineData_t object in this line for the byte address.
+    __attribute__((always_inline)) LineData_t &operator[](uintptr_t byte) {
       cilksan_level_assert(DEBUG_SHADOWMEM,
-                           getMemAccs() && "MemAccs not materialized");
-      return getMemAccs()[getIdx(byte)];
+                           getData() && "Data not materialized");
+      return getData()[getIdx(byte)];
     }
-    __attribute__((always_inline)) const MemoryAccess_t &
+    __attribute__((always_inline)) const LineData_t &
     operator[](uintptr_t byte) const {
       cilksan_level_assert(DEBUG_SHADOWMEM,
-                           getMemAccs() && "MemAccs not materialized");
-      return getMemAccs()[getIdx(byte)];
+                           getData() && "Data not materialized");
+      return getData()[getIdx(byte)];
     }
 
-    // Set all entries in this line covered by Accessed to be the MemoryAccess_t
-    // formed by (func, acc_id, type).  The func parameter must be valid.
+    // Set all entries in this line covered by Accessed to be the LineData_t
+    // formed by LineDataSetFn.  The func parameter must be valid.
     __attribute__((always_inline)) void
-    set(Chunk_t &Accessed, DisjointSet_t<SPBagInterface *> *func,
-        csi_id_t acc_id, MAType_t type) {
-      cilksan_assert(func && "Setting to NULL disjoint-set node");
+    set(Chunk_t &Accessed, LineDataSetFn SetFn) {
+      SetFn.checkValid();
       // Get the grainsize of the access.
       unsigned AccessedLgGrainsize = Accessed.getLgGrainsize();
 
@@ -356,13 +387,13 @@ private:
         if (!isMaterialized())
           materialize();
 
-        MemoryAccess_t *MemAccs = getMemAccs();
+        LineData_t *Data = getData();
         // Check if we're adding a new valid entry.
-        if (!MemAccs[0].isValid())
-          incNumNonNullAccs();
+        if (!LineDataMethods::isValid(Data[0]))
+          incNumNonNullEls();
 
         // Add the entry.
-        MemAccs[0].set(func, acc_id, type);
+        SetFn(Data[0]);
 
         // Updated Accessed.
         Accessed = Accessed.next(AccessedLgGrainsize);
@@ -370,8 +401,8 @@ private:
       }
 
       // We're updating the content of the line in a refined manner, meaning
-      // that either Accessed or this Line_t store MemoryAccess_t's at a finer
-      // granularity than 8-byte chunks.
+      // that either Accessed or this AbstractLine_t store LineData_t's at a
+      // finer granularity than the 2^LG_LINE_SIZE default.
 
       // Pick the smaller of the line's existing grainsize or the grainsize of
       // the access.
@@ -389,15 +420,15 @@ private:
         materialize();
 
       // Update the accesses in the line, until we find a new non-null Entry.
-      MemoryAccess_t *MemAccs = getMemAccs();
+      LineData_t *Data = getData();
       do {
         uintptr_t Idx = getIdx(byte(Accessed.addr));
         // Increase the count of non-null memory accesses, if necessary.
-        if (!MemAccs[Idx].isValid())
-          incNumNonNullAccs();
+        if (!LineDataMethods::isValid(Data[Idx]))
+          incNumNonNullEls();
 
         // Copy the memory access
-        MemAccs[Idx].set(func, acc_id, type);
+        SetFn(Data[Idx]);
 
         // Get the next location.
         Accessed = Accessed.next(AccessedLgGrainsize);
@@ -407,15 +438,12 @@ private:
       } while (!isLineStart(Accessed));
     }
 
-    // Starting from the first address in Accessed, insert the MemoryAccess_t
-    // (func, acc_id, type) into entries in this Line_t until either the end of
-    // this line is reached or a change is detected in the MemoryAccess_t
-    // object.
+    // Starting from the first address in Accessed, insert the LineData_t formed
+    // by LineDataSet into entries in this AbstractLine_t until either the end
+    // of this line is reached or a change is detected in the LineData_t object.
     __attribute__((always_inline)) void
-    insert(Chunk_t &Accessed, unsigned PrevIdx,
-           DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
-           MAType_t type) {
-      cilksan_assert(func && "Inserting null disjoint-set node");
+    insert(Chunk_t &Accessed, unsigned PrevIdx, LineDataSetFn SetFn) {
+      SetFn.checkValid();
       // Get the grainsize of the access.
       unsigned AccessedLgGrainsize = Accessed.getLgGrainsize();
 
@@ -428,13 +456,13 @@ private:
       if ((AccessedLgGrainsize == LG_LINE_SIZE) &&
           (getLgGrainsize() == LG_LINE_SIZE)) {
 
-        MemoryAccess_t *MemAccs = getMemAccs();
+        LineData_t *Data = getData();
         // Check if we're adding a new valid entry.
-        if (!MemAccs[0].isValid())
-          incNumNonNullAccs();
+        if (!LineDataMethods::isValid(Data[0]))
+          incNumNonNullEls();
 
         // Add the entry.
-        MemAccs[0].set(func, acc_id, type);
+        SetFn(Data[0]);
 
         // Updated Accessed.
         Accessed = Accessed.next(AccessedLgGrainsize);
@@ -442,8 +470,8 @@ private:
       }
 
       // We're updating the content of the line in a refined manner, meaning
-      // that either Accessed or this Line_t store MemoryAccess_t's at a finer
-      // granularity than 8-byte chunks.
+      // that either Accessed or this AbstractLine_t store LineData_t's at a
+      // finer granularity than the 2^LG_LINE_SIZE default.
 
       // Pick the smaller of the line's existing grainsize or the grainsize of
       // the access.
@@ -456,19 +484,19 @@ private:
         AccessedLgGrainsize = LgGrainsize;
       }
 
-      MemoryAccess_t *MemAccs = getMemAccs();
-      const MemoryAccess_t Previous = MemAccs[PrevIdx];
-      bool PrevIsValid = Previous.isValid();
+      LineData_t *Data = getData();
+      const LineData_t Previous = Data[PrevIdx];
+      bool PrevIsValid = LineDataMethods::isValid(Previous);
       unsigned EntryIdx;
       // Update the accesses in the line, until we find a new non-null Entry.
       do {
         uintptr_t Idx = getIdx(byte(Accessed.addr));
         // Increase the count of non-null memory accesses, if necessary.
-        if (!MemAccs[Idx].isValid())
-          incNumNonNullAccs();
+        if (!LineDataMethods::isValid(Data[Idx]))
+          incNumNonNullEls();
 
         // Copy the memory access
-        MemAccs[Idx].set(func, acc_id, type);
+        SetFn(Data[Idx]);
 
         // Get the next location.
         Accessed = Accessed.next(AccessedLgGrainsize);
@@ -480,8 +508,8 @@ private:
           return;
 
         EntryIdx = getIdx(byte(Accessed.addr));
-      } while (!MemAccs[EntryIdx].isValid() ||
-               (PrevIsValid && (Previous == MemAccs[EntryIdx])));
+      } while (!LineDataMethods::isValid(Data[EntryIdx]) ||
+               (PrevIsValid && (Previous == Data[EntryIdx])));
     }
 
     // Reset all the entries of this line covered by Accessed.
@@ -515,18 +543,18 @@ private:
         return;
       }
 
-      MemoryAccess_t *MemAccs = getMemAccs();
+      LineData_t *Data = getData();
       do {
         uintptr_t Idx = getIdx(byte(Accessed.addr));
-        // If we find a valid MemoryAccess_t, invalidate it.
-        if (MemAccs[Idx].isValid()) {
-          MemAccs[Idx].invalidate();
+        // If we find a valid LineData_t, invalidate it.
+        if (LineDataMethods::isValid(Data[Idx])) {
+          LineDataMethods::invalidate(Data[Idx]);
 
           // Decrement the number of non-null accesses.
-          decNumNonNullAccs();
+          decNumNonNullEls();
 
           // Skip to the end of the line if it becomes empty.
-          if (noNonNullAccs()) {
+          if (noNonNullEls()) {
             Accessed = Accessed.next(LG_LINE_SIZE);
             // Reset the line to forget about any refinement.
             if (getLgGrainsize() != LG_LINE_SIZE)
@@ -541,8 +569,15 @@ private:
     }
   };
 
+  // Data structure for a line of memory locations.  A line is represented as an
+  // array of MemoryAccess_t objects, where each object represents an aligned
+  // set of (1 << LgGrainsize) bytes.  LgGrainsize must be in
+  // [0, LG_LINE_SIZE].
+  using Line_t = AbstractLine_t<MemoryAccess_t, MALineMethods, MASetFn>;
+
   // A page is an array of lines.
   struct Page_t {
+    using LineType = Line_t;
     // Bitmap identifying bytes in the page that were previously accessed in
     // the current strand.
     static constexpr unsigned LG_OCCUPANCY_PAGE_SIZE =
@@ -552,7 +587,7 @@ private:
     uint64_t occupancy[OCC_ARR_SIZE] = {0};
 
     // Memory-access entries for the page
-    Line_t lines[1UL << LG_PAGE_SIZE];
+    LineType lines[1UL << LG_PAGE_SIZE];
 
     // To accommodate their size and sparse access pattern, use mmap/munmap to
     // allocate and free Page_t's.
@@ -563,8 +598,8 @@ private:
     void operator delete(void *ptr) { munmap(ptr, sizeof(Page_t)); }
 
     // Operators for accessing lines
-    Line_t &operator[](uintptr_t line) { return lines[line]; }
-    const Line_t &operator[](uintptr_t line) const { return lines[line]; }
+    LineType &operator[](uintptr_t line) { return lines[line]; }
+    const LineType &operator[](uintptr_t line) const { return lines[line]; }
 
     // Constants for operating on occupancy bits
     static constexpr uintptr_t LG_OCCUPANCY_WORD_SIZE = 6;
@@ -607,7 +642,8 @@ private:
       return Chunk_t(nextAddr, Accessed.size - chunkSize);
     }
 
-    bool setOccupied(Chunk_t &Accessed, Vector_t<uintptr_t> &TouchedWords) {
+    __attribute__((always_inline)) bool
+    setOccupied(Chunk_t &Accessed, Vector_t<uintptr_t> &TouchedWords) {
       bool foundUnoccupied = false;
       while (!Accessed.isEmpty()) {
         uintptr_t addr = Accessed.addr;
@@ -653,12 +689,129 @@ private:
     }
   };
 
+  struct LockerLineMethods {
+    __attribute__((always_inline)) static LockerList_t *allocate(size_t size) {
+      return new LockerList_t[size];
+    }
+    __attribute__((always_inline)) static bool deallocate(LockerList_t *Ptr) {
+      delete[] Ptr;
+      return true;
+    }
+    __attribute__((always_inline)) static bool isValid(const LockerList_t &LL) {
+      return LL.isValid();
+    }
+    __attribute__((always_inline)) static void invalidate(LockerList_t &LL) {
+      LL.invalidate();
+    }
+  };
+
+  struct LockerSetFn {
+    const LockSet_t &lockset;
+    csi_id_t acc_id;
+    MAType_t type;
+    FrameData_t *f;
+
+    __attribute__((always_inline)) void operator()(LockerList_t &LL) const {
+      // Scan the existing lockers to remove redundant lockers
+      bool redundant = false;
+      Locker_t *locker = LL.getHead();
+      Locker_t **prevPtr = &LL.getHead();
+      while (locker) {
+        IntersectionResult_t result =
+            LockSet_t::intersect(locker->getLockSet(), lockset);
+        if (!MemoryAccess_t::previousAccessInParallel(&locker->getAccess(),
+                                                      f)) {
+          if (result & L_SUPERSET_OF_R) {
+            // The current lockset in the list is redundant with the lockset of
+            // this access.
+
+            // Splice the current lockset out of the list.
+            *prevPtr = locker->getNext();
+            Locker_t *next = locker->getNext();
+            locker->setNext(nullptr);
+            // Delete the current locker
+            delete locker;
+            // Move on to the next locker in the list.
+            locker = next;
+            continue;
+          }
+        } else {
+          // Test if this lockset is redundant with one in the list
+          if (result & L_SUBSET_OF_R)
+            redundant = true;
+        }
+        prevPtr = &locker->getNext();
+        locker = locker->getNext();
+      }
+      if (!redundant) {
+        Locker_t *newLocker = new Locker_t(
+            MemoryAccess_t(f->getSbagForAccess(), acc_id, type), lockset);
+        LL.insert(newLocker);
+      }
+    }
+    __attribute__((always_inline)) void checkValid() const {}
+  };
+
+  // Data structure for a line of locker lists.  A line is represented as an
+  // array of LockerList_t objects, where each object represents an aligned set
+  // of (1 << LgGrainsize) bytes.  LgGrainsize must be in [0, LG_LINE_SIZE].
+  using LockerLine_t =
+      AbstractLine_t<LockerList_t, LockerLineMethods, LockerSetFn>;
+
+  struct LockerPage_t {
+    using LineType = LockerLine_t;
+
+    LockerLine_t lines[1UL << LG_PAGE_SIZE];
+
+    // To accommodate their size and sparse access pattern, use mmap/munmap to
+    // allocate and free Page_t's.
+    void *operator new(size_t size) {
+      return mmap(nullptr, sizeof(LockerPage_t), PROT_READ | PROT_WRITE,
+                  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    }
+    void operator delete(void *ptr) { munmap(ptr, sizeof(LockerPage_t)); }
+
+    // Operators for accessing lines
+    LockerLine_t &operator[](uintptr_t line) { return lines[line]; }
+    const LockerLine_t &operator[](uintptr_t line) const { return lines[line]; }
+  };
+
   // A table is an array of pages.
   Page_t *Table[1UL << LG_TABLE_SIZE] = {nullptr};
+  LockerPage_t *LockerTable[1UL << LG_TABLE_SIZE] = {nullptr};
 
   // Vectors to track non-null values in the 2-level occupancy table.
   Vector_t<uintptr_t> TouchedWords;
   Vector_t<uintptr_t> AllocatedPages;
+  bool LockerTableUsed = false;
+
+  // Get a page of the appropriate type from the corresponding table.
+  template <typename PageType>
+  __attribute__((always_inline)) PageType *getPage(uintptr_t idx) const;
+  template <>
+  __attribute__((always_inline)) Page_t *getPage<Page_t>(uintptr_t idx) const {
+    return Table[idx];
+  }
+  template <>
+  __attribute__((always_inline)) LockerPage_t *
+  getPage<LockerPage_t>(uintptr_t idx) const {
+    return LockerTable[idx];
+  }
+
+  // Set a page in the corresponding table.
+  template <typename PageType>
+  __attribute__((always_inline)) void setPage(uintptr_t idx, PageType *Page);
+  template <>
+  __attribute__((always_inline)) void setPage<Page_t>(uintptr_t idx,
+                                                      Page_t *Page) {
+    Table[idx] = Page;
+  }
+  template <>
+  __attribute__((always_inline)) void
+  setPage<LockerPage_t>(uintptr_t idx, LockerPage_t *Page) {
+    LockerTableUsed = true;
+    LockerTable[idx] = Page;
+  }
 
   __attribute__((always_inline)) static unsigned lgMemSize(size_t mem_size) {
     switch (mem_size) {
@@ -692,23 +845,34 @@ public:
         delete Table[i];
         Table[i] = nullptr;
       }
+    if (LockerTableUsed)
+      for (int64_t i = 0; i < (1L << LG_TABLE_SIZE); ++i)
+        if (LockerTable[i]) {
+          delete LockerTable[i];
+          LockerTable[i] = nullptr;
+        }
   }
 
   // Helper class to store a particular location in the dictionary.  This class
   // makes it easy to re-retrieve the MemoryAccess_t object at a given location,
   // even if the underlying line structure in the shadow memory might change.
+  template<typename PageType>
   struct Entry_t {
+    using LineType = typename PageType::LineType;
+    using DataType = typename LineType::DataType;
+    using DataMethods = typename LineType::DataMethods;
+
     uintptr_t Address;
-    Page_t *Page = nullptr;
+    PageType *Page = nullptr;
 
     Entry_t() {}
     Entry_t(const SimpleDictionary &D, uintptr_t Address) : Address(Address) {
-      Page = D.Table[page(Address)];
+      Page = D.getPage<PageType>(page(Address));
     }
 
-    // Get the MemoryAcces_t object at this location.  Returns nullptr if no
-    // valid MemoryAccess_t object exists at the current address.
-    __attribute__((always_inline)) const MemoryAccess_t *get() const {
+    // Get the DataType object at this location.  Returns nullptr if no valid
+    // DataType object exists at the current address.
+    __attribute__((always_inline)) const DataType *get() const {
       // If there's no page, return nullptr.
       if (!Page)
         return nullptr;
@@ -717,56 +881,55 @@ public:
       if ((*Page)[line(Address)].isEmpty())
         return nullptr;
 
-      // Return the MemoryAccess_t at this address if it's valid, nullptr
+      // Return the DataType object at this address if it's valid, nullptr
       // otherwise.
-      const MemoryAccess_t *Acc = &((*Page)[line(Address)][byte(Address)]);
-      if (!Acc->isValid())
+      const DataType *Acc = &((*Page)[line(Address)][byte(Address)]);
+      if (!DataMethods::isValid(*Acc))
         return nullptr;
       return Acc;
     }
   };
 
-  __attribute__((always_inline)) Line_t *getLine(uintptr_t addr,
-                                                 size_t mem_size) {
-    Page_t *Page = Table[page(addr)];
+  template <typename PageType>
+  __attribute__((always_inline)) typename PageType::LineType *
+  getLine(uintptr_t addr, size_t mem_size) {
+    using LineType = typename PageType::LineType;
+    PageType *Page = getPage<PageType>(page(addr));
     if (!Page)
       return nullptr;
 
-    Line_t *Line = &(*Page)[line(addr)];
+    LineType *Line = &(*Page)[line(addr)];
 
     return Line;
   }
 
-  __attribute__((always_inline))
-  Line_t *getOrCreateLine(uintptr_t addr, size_t mem_size) {
+  template <typename PageType>
+  __attribute__((always_inline)) typename PageType::LineType *
+  getLineMustExist(uintptr_t addr, size_t mem_size) {
+    using LineType = typename PageType::LineType;
     unsigned AccessLgGrainsize = lgMemSize(mem_size);
-    Page_t *Page = Table[page(addr)];
-    Line_t *Line;
-    if (!Page) {
-      // Create a new page if necessary
-      Page = new Page_t;
-      Table[page(addr)] = Page;
-      Line = &(*Page)[line(addr)];
-      // Because we're creating a new Line_t, go ahead and refine it to the
-      // desired grainsize, based on mem_size.
+    PageType *Page = getPage<PageType>(page(addr));
+    LineType *Line;
+    Line = &(*Page)[line(addr)];
+    // If the line's grainsize is larger than that of the access, go ahead and
+    // refine the line,
+    if (Line->getLgGrainsize() > AccessLgGrainsize)
       Line->refine(AccessLgGrainsize);
-    } else {
-      Line = &(*Page)[line(addr)];
-      // If the line's grainsize is larger than that of the access, go ahead and
-      // refine the line,
-      if (Line->getLgGrainsize() > AccessLgGrainsize)
-        Line->refine(AccessLgGrainsize);
-    }
     return Line;
   }
 
   // Iterator class for querying the entries of the shadow memory corresponding
   // to a given accessed chunk.
-  class Query_iterator {
+  template <typename PageType> class Query_iterator {
+    using LineType = typename PageType::LineType;
+    using DataType = typename LineType::DataType;
+    using DataMethods = typename LineType::DataMethods;
+    using Entry_t = Entry_t<PageType>;
+
     const SimpleDictionary &Dict;
     Chunk_t Accessed;
-    Page_t *Page = nullptr;
-    Line_t *Line = nullptr;
+    PageType *Page = nullptr;
+    LineType *Line = nullptr;
     Entry_t Entry;
 
   public:
@@ -793,9 +956,9 @@ public:
       return Accessed.isEmpty();
     }
 
-    // Get the MemoryAccess_t object at the current address.  Returns nullptr if
-    // no valid MemoryAccess_t object exists at the current address.
-    __attribute__((always_inline)) const MemoryAccess_t *get() const {
+    // Get the DataType object at the current address.  Returns nullptr if no
+    // valid DataType object exists at the current address.
+    __attribute__((always_inline)) const DataType *get() const {
       if (isEnd())
         return nullptr;
 
@@ -803,8 +966,8 @@ public:
       if (Line->isEmpty())
         return nullptr;
 
-      const MemoryAccess_t *Access = &(*Line)[byte(Accessed.addr)];
-      if (!Access->isValid())
+      const DataType *Access = &(*Line)[byte(Accessed.addr)];
+      if (!DataMethods::isValid(*Access))
         return nullptr;
       return Access;
     }
@@ -813,13 +976,13 @@ public:
     uintptr_t getAddress() const { return Accessed.addr; }
 
     // Scan the entries from Accessed until an entry with a new non-null
-    // MemoryAccess_t is found.
+    // DataType object is found.
     __attribute__((always_inline)) void next() {
       cilksan_assert(!isEnd() &&
                      "Cannot call next() on an empty Line iterator");
       const Entry_t Previous = Entry;
-      const MemoryAccess_t *PrevMemAcc = Previous.get();
-      const MemoryAccess_t *EntryMemAcc = nullptr;
+      const DataType *PrevData = Previous.get();
+      const DataType *EntryData = nullptr;
       do {
         if (Line->isEmpty())
           Accessed = Accessed.next(LG_LINE_SIZE);
@@ -840,8 +1003,8 @@ public:
             return;
 
         Entry = Entry_t(Dict, Accessed.addr);
-        EntryMemAcc = Entry.get();
-      } while (!EntryMemAcc || (PrevMemAcc && (*PrevMemAcc == *EntryMemAcc)));
+        EntryData = Entry.get();
+      } while (!EntryData || (PrevData && (*PrevData == *EntryData)));
     }
 
   private:
@@ -851,13 +1014,13 @@ public:
       cilksan_assert(!isEnd() &&
                      "Cannot call nextPage() on an empty Line iterator");
       // Scan to find the non-null page.
-      Page = Dict.Table[page(Accessed.addr)];
+      Page = Dict.getPage<PageType>(page(Accessed.addr));
       while (!Page) {
         Accessed = Accessed.next(LG_PAGE_SIZE + LG_LINE_SIZE);
         // Return early if the access becomes empty.
         if (Accessed.isEmpty())
           return false;
-        Page = Dict.Table[page(Accessed.addr)];
+        Page = Dict.getPage<PageType>(page(Accessed.addr));
       }
       return true;
     }
@@ -890,11 +1053,17 @@ public:
 
   // Iterator class for updating the entries of the shadow memory corresponding
   // to a given chunk Accessed.
-  class Update_iterator {
+  template <typename PageType> class Update_iterator {
+    using LineType = typename PageType::LineType;
+    using DataType = typename LineType::DataType;
+    using DataMethods = typename LineType::DataMethods;
+    using DataSetFn = typename LineType::DataSetFn;
+    using Entry_t = Entry_t<PageType>;
+
     SimpleDictionary &Dict;
     Chunk_t Accessed;
-    Page_t *Page = nullptr;
-    Line_t *Line = nullptr;
+    PageType *Page = nullptr;
+    LineType *Line = nullptr;
     Entry_t Entry;
 
   public:
@@ -921,17 +1090,17 @@ public:
       return Accessed.isEmpty();
     }
 
-    // Get the MemoryAccess_t object at the current address.  Returns nullptr if
-    // no valid MemoryAccess_t object exists at the current address.
-    __attribute__((always_inline)) MemoryAccess_t *get() const {
+    // Get the DataType object at the current address.  Returns nullptr if
+    // no valid DataType object exists at the current address.
+    __attribute__((always_inline)) DataType *get() const {
       if (isEnd() || !Page)
         return nullptr;
 
       if (Line->isEmpty())
         return nullptr;
 
-      MemoryAccess_t *Access = &(*Line)[byte(Accessed.addr)];
-      if (!Access->isValid())
+      DataType *Access = &(*Line)[byte(Accessed.addr)];
+      if (!DataMethods::isValid(*Access))
         return nullptr;
       return Access;
     }
@@ -942,7 +1111,8 @@ public:
     }
 
     // Scan the entries from Accessed until we find a location with an invalid
-    // MemoryAccess_t or a MemoryAccess_t that does not match the previous one.
+    // DataType object or a DataType object that does not match the previous
+    // one.
     __attribute__((always_inline)) void next() {
       cilksan_assert(!isEnd() &&
                      "Cannot call next() on an empty Line iterator");
@@ -971,22 +1141,20 @@ public:
                *Previous.get() == *Entry.get());
     }
 
-    // Set all entries from Accessed to the MemoryAccess_t formed by (func,
-    // acc_id, type).
-    __attribute__((always_inline)) void
-    set(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id, MAType_t type) {
+    // Set all entries from Accessed to the DataObject formed by SetFn.
+    __attribute__((always_inline)) void set(DataSetFn SetFn) {
       do {
         // Create a new page, if necessary.
         if (!Page) {
-          Page = new Page_t;
-          Dict.Table[page(Accessed.addr)] = Page;
+          Page = new PageType;
+          Dict.setPage(page(Accessed.addr), Page);
           Line = &(*Page)[line(Accessed.addr)];
           assert(!Line->isMaterialized() &&
                  "Materialized line found in new page");
         }
 
-        // Set MemoryAccess_t objects in the current line.
-        Line->set(Accessed, func, acc_id, type);
+        // Set DataType objects in the current line.
+        Line->set(Accessed, SetFn);
 
         // Return early if we've handled the whole access.
         if (Accessed.isEmpty())
@@ -1003,29 +1171,27 @@ public:
       } while (true);
     }
 
-    // Insert MemoryAccess_t into all entries from Accessed until a new valid
-    // MemoryAccess_t is discovered.
+    // Insert DataType objects into all entries from Accessed until a new valid
+    // DataType object is discovered.
     __attribute__((always_inline)) void
-    insert(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
-           MAType_t type) {
-      // Copy the MemoryAccess_t at the previous entry.  In case this method
-      // changes the MemoryAccess_t at this previous entry, this copy ensures
-      // that comparisons use the previous MemoryAccess_t value.
-      const MemoryAccess_t Previous(Entry.get() ? *Entry.get()
-                                                : MemoryAccess_t());
+    insert(DataSetFn SetFn) {
+      // Copy the object at the previous entry.  In case this method changes the
+      // object at this previous entry, this copy ensures that comparisons use
+      // the previous object's value.
+      const DataType Previous(Entry.get() ? *Entry.get() : DataType());
+      bool PrevIsValid = DataMethods::isValid(Previous);
       do {
         // Create a new page, if necessary.
         if (!Page) {
-          Page = new Page_t;
-          Dict.Table[page(Accessed.addr)] = Page;
+          Page = new PageType;
+          Dict.setPage<PageType>(page(Accessed.addr), Page);
           Line = &(*Page)[line(Accessed.addr)];
           assert(!Line->isMaterialized() &&
                  "Materialized line found in new page");
         }
 
-        // Set MemoryAccess_t objects in the current line.
-        Line->insert(Accessed, Line->getIdx(byte(Accessed.addr)), func, acc_id,
-                     type);
+        // Set the object in the current line.
+        Line->insert(Accessed, Line->getIdx(byte(Accessed.addr)), SetFn);
 
         // Return early if we've handled the whole access.
         if (Accessed.isEmpty())
@@ -1040,8 +1206,7 @@ public:
           nextLine();
 
         Entry = Entry_t(Dict, Accessed.addr);
-      } while (!Entry.get() ||
-               (Previous.isValid() && (Previous == *Entry.get())));
+      } while (!Entry.get() || (PrevIsValid && (Previous == *Entry.get())));
     }
 
     // Clear all entries covered by Accessed.
@@ -1069,7 +1234,7 @@ public:
     bool nextPage() {
       cilksan_assert(!isEnd() &&
                      "Cannot call nextPage() on an empty Line iterator");
-      Page = Dict.Table[page(Accessed.addr)];
+      Page = Dict.getPage<PageType>(page(Accessed.addr));
       return true;
     }
     __attribute__((always_inline))
@@ -1090,13 +1255,13 @@ public:
       cilksan_assert(!isEnd() &&
                      "Cannot call nextPage() on an empty Line iterator");
       // Scan to find the non-null page.
-      Page = Dict.Table[page(Accessed.addr)];
+      Page = Dict.getPage<PageType>(page(Accessed.addr));
       while (!Page) {
         Accessed = Accessed.next(LG_PAGE_SIZE + LG_LINE_SIZE);
         // Return early if the access becomes empty.
         if (Accessed.isEmpty())
           return false;
-        Page = Dict.Table[page(Accessed.addr)];
+        Page = Dict.getPage<PageType>(page(Accessed.addr));
       }
       return true;
     }
@@ -1128,7 +1293,8 @@ public:
   };
 
   // High-level method to set the occupancy of the shadow memory
-  bool setOccupied(uintptr_t addr, size_t mem_size) {
+  __attribute__((always_inline)) bool setOccupied(uintptr_t addr,
+                                                  size_t mem_size) {
     assert(AllocIdx != AllocMAAllocator &&
            "Called setOccupied on Alloc shadow memory");
 
@@ -1149,8 +1315,8 @@ public:
 
   // High-level fast-path method to set the occupancy of the shadow memory for a
   // small, aligned access.
-  __attribute__((always_inline))
-  bool setOccupiedFast(uintptr_t addr, size_t mem_size) {
+  __attribute__((always_inline)) bool setOccupiedFast(uintptr_t addr,
+                                                      size_t mem_size) {
     assert(AllocIdx != AllocMAAllocator &&
            "Called setOccupied on Alloc shadow memory");
 
@@ -1180,17 +1346,9 @@ public:
     AllocatedPages.clear();
   }
 
-  // High-level method to check if this dictionary contains any entries covered
-  // by the specified chunk of memory.
-  __attribute__((always_inline)) bool includes(uintptr_t addr,
-                                               size_t size) const {
-    Query_iterator QI(*this, Chunk_t(addr, size));
-    return !QI.isEnd();
-  }
-
   // High-level method to find a MemoryAccess_t object at the specified address.
   const MemoryAccess_t *find(uintptr_t addr) const {
-    Query_iterator QI(*this, Chunk_t(addr, 1));
+    Query_iterator<Page_t> QI(*this, Chunk_t(addr, 1));
     return QI.get();
   }
 
@@ -1198,24 +1356,42 @@ public:
   // the MemoryAccess_t formed by (func, acc_id, type).
   void set(uintptr_t addr, size_t size, DisjointSet_t<SPBagInterface *> *func,
            csi_id_t acc_id, MAType_t type) {
-    Update_iterator UI(*this, Chunk_t(addr, size));
-    UI.set(func, acc_id, type);
+    Update_iterator<Page_t> UI(*this, Chunk_t(addr, size));
+    UI.set(MASetFn({func, acc_id, type}));
   }
 
   // Get a query iterator for the specified chunk of memory.
-  Query_iterator getQueryIterator(uintptr_t addr, size_t size) const {
-    return Query_iterator(*this, Chunk_t(addr, size));
+  Query_iterator<Page_t> getQueryIterator(uintptr_t addr, size_t size) const {
+    return Query_iterator<Page_t>(*this, Chunk_t(addr, size));
   }
 
   // Get an update iterator for the specified chunk of memory.
-  Update_iterator getUpdateIterator(uintptr_t addr, size_t size) {
-    return Update_iterator(*this, Chunk_t(addr, size));
+  Update_iterator<Page_t> getUpdateIterator(uintptr_t addr, size_t size) {
+    return Update_iterator<Page_t>(*this, Chunk_t(addr, size));
+  }
+
+  // Get a query iterator for the lockers for a specified chunk of memory.
+  Query_iterator<LockerPage_t> getLockerQueryIterator(uintptr_t addr,
+                                                      size_t size) const {
+    return Query_iterator<LockerPage_t>(*this, Chunk_t(addr, size));
+  }
+
+  // Get an update iterator for the lockers for a specified chunk of memory.
+  Update_iterator<LockerPage_t> getLockerUpdateIterator(uintptr_t addr,
+                                                        size_t size) {
+    return Update_iterator<LockerPage_t>(*this, Chunk_t(addr, size));
   }
 
   // Clear all entries for the specified chunk of memory.
   __attribute__((always_inline)) void clear(uintptr_t addr, size_t size) {
-    Update_iterator UI(*this, Chunk_t(addr, size));
+    Update_iterator<Page_t> UI(*this, Chunk_t(addr, size));
     UI.clear();
+
+    // Also clear the locker table, if it is used.
+    if (LockerTableUsed) {
+      Update_iterator<LockerPage_t> DRUI(*this, Chunk_t(addr, size));
+      DRUI.clear();
+    }
   }
 };
 
@@ -1232,31 +1408,18 @@ private:
   using RLine_t = SimpleDictionary<ReadMAAllocator>::Line_t;
   using WLine_t = SimpleDictionary<WriteMAAllocator>::Line_t;
 
-  __attribute__((always_inline)) void freePages() {
+  void freePages() {
     Reads.freePages();
     Writes.freePages();
   }
 
-  // Logic to check if the given previous MemoryAccess_t is logicall in parallel
-  // with the current strand.
   __attribute__((always_inline)) static bool
   previousAccessInParallel(MemoryAccess_t *PrevAccess, FrameData_t *f) {
-    // Get the function for this previous access
-    auto Func = PrevAccess->getFunc();
-    // Get the bag for the previous access
-    SPBagInterface *LCA = Func->get_set_node();
-    // If it's a P-bag, then we have a parallel access.
-
-    // If memory is allocated on stack, the accesses race with each other only
-    // if the mem location is allocated in shared ancestor's stack.  We don't
-    // need to check for this because we clear shadow memory; non-shared stack
-    // can't race because earlier one would've been cleared.
-    return LCA->is_PBag() || f->check_parallel_iter(static_cast<SBag_t *>(LCA),
-                                                    PrevAccess->getVersion());
+    return MemoryAccess_t::previousAccessInParallel(PrevAccess, f);
   }
   __attribute__((always_inline)) static bool
   previousAccessInParallel(const MemoryAccess_t *PrevAccess, FrameData_t *f) {
-    return previousAccessInParallel(const_cast<MemoryAccess_t *>(PrevAccess), f);
+    return MemoryAccess_t::previousAccessInParallel(PrevAccess, f);
   }
 
   // Logic to try to get memory-allocation information on the given address
@@ -1266,6 +1429,28 @@ private:
     if (auto AllocFind = Allocs.find(addr))
       return AllocFind->getLoc();
     return AccessLoc_t();
+  }
+
+  // Logic to check for a data race with the given previous accesses.
+  __attribute__((always_inline)) static bool
+  dataRaceWithPreviousAccesses(LockerList_t *PrevAccesses, FrameData_t *f,
+                               const LockSet_t &LS) {
+    Locker_t *locker = PrevAccesses->getHead();
+    while (locker) {
+      if (previousAccessInParallel(&locker->getAccess(), f)) {
+        if (IntersectionResult_t::EMPTY ==
+            LockSet_t::intersect(locker->getLockSet(), LS))
+          return true;
+      }
+      locker = locker->getNext();
+    }
+    return false;
+  }
+  __attribute__((always_inline)) static bool
+  dataRaceWithPreviousAccesses(const LockerList_t *PrevAccesses, FrameData_t *f,
+                               const LockSet_t &LS) {
+    return dataRaceWithPreviousAccesses(
+        const_cast<LockerList_t *>(PrevAccesses), f, LS);
   }
 
 public:
@@ -1302,10 +1487,13 @@ public:
     Writes.clearOccupied();
   }
 
+  // Core routine for checking for a determinacy race, using the given
+  // Query_iterator QI.
   template <typename QITy, bool prev_read, bool is_read>
   __attribute__((always_inline)) void
-  check_race(QITy &QI, const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-             size_t mem_size, FrameData_t *f) const {
+  check_race(QITy &QI, const csi_id_t acc_id, MAType_t type,
+             FrameData_t *f) const {
+    // Repeat as long as the Query_iterator has more memory locations to check.
     while (!QI.isEnd()) {
       // Find a previous access
       const MemoryAccess_t *PrevAccess = QI.get();
@@ -1336,80 +1524,90 @@ public:
           }
         }
       }
+      // Get the next location to check.
       QI.next();
     }
   }
 
+  // Instantiate check_race to check for a determinacy race with a previous read
+  // access.
   __attribute__((always_inline)) void
   check_race_with_prev_read(const csi_id_t acc_id, uintptr_t addr,
                             size_t mem_size, FrameData_t *f) const {
-    using QITy = SimpleDictionary<ReadMAAllocator>::Query_iterator;
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using QITy = RDict::Query_iterator<RDict::Page_t>;
     QITy QI = Reads.getQueryIterator(addr, mem_size);
     // The second argument does not matter here.
-    check_race<QITy, true, false>(QI, acc_id, MAType_t::RW, addr, mem_size, f);
+    check_race<QITy, true, false>(QI, acc_id, MAType_t::RW, f);
   }
 
+  // Instantiate check_race to check for a determinacy race with a previous
+  // write access.
   template <bool is_read>
   __attribute__((always_inline)) void
   check_race_with_prev_write(const csi_id_t acc_id, MAType_t type,
                              uintptr_t addr, size_t mem_size,
                              FrameData_t *f) const {
-    using QITy = SimpleDictionary<WriteMAAllocator>::Query_iterator;
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    using QITy = WDict::Query_iterator<WDict::Page_t>;
     QITy QI = Writes.getQueryIterator(addr, mem_size);
-    check_race<QITy, false, is_read>(QI, acc_id, type, addr, mem_size, f);
+    check_race<QITy, false, is_read>(QI, acc_id, type, f);
   }
 
-  template <typename UITy, bool with_read>
+  // Core routine for updating the entries of a dictionary, using the given
+  // Update_iterator UI.
+  template <typename UITy, class MASetFn>
   __attribute__((always_inline)) void update(UITy &UI, const csi_id_t acc_id,
-                                             MAType_t type, uintptr_t addr,
-                                             size_t mem_size, FrameData_t *f) {
+                                             MAType_t type, FrameData_t *f) {
+    // Repeat as long as the Update_iterator has more memory locations to
+    // update.
     while (!UI.isEnd()) {
       // Find a previous access
       MemoryAccess_t *PrevAccess = UI.get();
       if (!PrevAccess || !PrevAccess->isValid()) {
-        // This is the first access to this location.
-        UI.insert(f->getSbagForAccess(), acc_id, type);
+        // This is the first access to this location.  Record the memory access.
+        UI.insert(MASetFn({f->getSbagForAccess(), acc_id, type}));
       } else {
         // If the previous access was in series, update it.  Otherwise, get the
         // next location to check
         if (!previousAccessInParallel(PrevAccess, f)) {
-          UI.insert(f->getSbagForAccess(), acc_id, type);
+          UI.insert(MASetFn({f->getSbagForAccess(), acc_id, type}));
         } else {
+          // Nothing to update; get the next location.
           UI.next();
         }
       }
     }
   }
 
+  // Instantiate update to update the read dictionary with a new read access.
   __attribute__((always_inline)) void update_with_read(const csi_id_t acc_id,
                                                        uintptr_t addr,
                                                        size_t mem_size,
                                                        FrameData_t *f) {
-    using UITy = SimpleDictionary<ReadMAAllocator>::Update_iterator;
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using UITy = RDict::Update_iterator<RDict::Page_t>;
     UITy UI = Reads.getUpdateIterator(addr, mem_size);
-    update<UITy, true>(UI, acc_id, MAType_t::RW, addr, mem_size, f);
+    update<UITy, RDict::MASetFn>(UI, acc_id, MAType_t::RW, f);
   }
 
-  __attribute__((always_inline)) void
-  update_with_write(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                    size_t mem_size, FrameData_t *f) {
-    using UITy = SimpleDictionary<WriteMAAllocator>::Update_iterator;
-    UITy UI = Writes.getUpdateIterator(addr, mem_size);
-    update<UITy, false>(UI, acc_id, type, addr, mem_size, f);
-  }
-
+  // Core routine that combines the checking and updating of the write
+  // dictionary with a new write access.
   __attribute__((always_inline)) void
   check_and_update_write(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
                          size_t mem_size, FrameData_t *f) {
-    SimpleDictionary<WriteMAAllocator>::Update_iterator UI =
-        Writes.getUpdateIterator(addr, mem_size);
+    // Create an Update_iterator for the new write access
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    using UITy = WDict::Update_iterator<WDict::Page_t>;
+    UITy UI = Writes.getUpdateIterator(addr, mem_size);
 
+    // Repeat as long as there are more memory locations to check and update.
     while (!UI.isEnd()) {
       // Find a previous access
       MemoryAccess_t *PrevAccess = UI.get();
       if (!PrevAccess || !PrevAccess->isValid()) {
-        // This is the first access to this location.
-        UI.insert(f->getSbagForAccess(), acc_id, type);
+        // This is the first access to this location.  Record the access.
+        UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
       } else {
         // If the previous access was in parallel, we have a race.
         if (__builtin_expect(previousAccessInParallel(PrevAccess, f), false)) {
@@ -1424,27 +1622,41 @@ public:
           UI.next();
         } else {
           // Otherwise, the previous was in series, so update it
-          UI.insert(f->getSbagForAccess(), acc_id, type);
+          UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
         }
       }
     }
   }
 
+  // Implement a fast-path check for a determinacy race against a new read
+  // access.  This fast path is tailored for small (mem_size <= 2^LG_LINE_SIZE),
+  // aligned memory accesses.
   __attribute__((always_inline)) void
   check_read_fast(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
                   size_t mem_size, FrameData_t *f) {
-    WLine_t *__restrict__ write_line = Writes.getLine(addr, mem_size);
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    // Get the line storing the previous write to this location, if any.
+    const WLine_t *__restrict__ write_line =
+        Writes.getLine<WDict::Page_t>(addr, mem_size);
     // Since we only need to query the previous write access, we can still
     // handle this read even if we don't have a previous write access.
     bool need_check = write_line && !write_line->isEmpty();
-    if (need_check && (1 << write_line->getLgGrainsize()) != mem_size) {
+    if (need_check && (1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
+      // This access touches more than one entry in the line.  Handle it via the
+      // slow path.
       check_race_with_prev_write<false>(acc_id, type, addr, mem_size, f);
       need_check = false;
     }
 
-    RLine_t *__restrict__ read_line = Reads.getOrCreateLine(addr, mem_size);
+    // Get the line storing the previous write to this location, if any.
+    RLine_t *__restrict__ read_line =
+        Reads.getLineMustExist<RDict::Page_t>(addr, mem_size);
+        // Reads.getOrCreateLine<RDict::Page_t>(addr, mem_size);
     bool need_update = true;
-    if ((1 << read_line->getLgGrainsize()) != mem_size) {
+    if ((1 << read_line->getLgGrainsize()) != (unsigned)mem_size) {
+      // This access touches more than one entry in the line.  Handle it via the
+      // slow path.
       update_with_read(acc_id, addr, mem_size, f);
       need_update = false;
     }
@@ -1452,6 +1664,7 @@ public:
     // We're now committed to handling this check.  Insert the read access
     // first, then check against the write access.
 
+    // Update the read dictionary with this new access, if need be.
     if (need_update) {
       // Materialize the read line if necessary
       if (!read_line->isMaterialized())
@@ -1461,7 +1674,8 @@ public:
       if (!read_ma->isValid()) {
         // If we're inserting a new read, increment the count of non-null
         // accesses in this line
-        read_line->incNumNonNullAccs();
+        read_line->incNumNonNullEls();
+
         // Update the read MemoryAccess_t
         read_ma->set(f->getSbagForAccess(), acc_id, type);
       } else {
@@ -1478,7 +1692,7 @@ public:
     // If need be, check the previous write access for a race.
     if (need_check) {
       // Get the write MemoryAccess_t to query.
-      MemoryAccess_t &write_ma = (*write_line)[Writes.byte(addr)];
+      const MemoryAccess_t &write_ma = (*write_line)[Writes.byte(addr)];
       if (write_ma.isValid()) {
         // If the previous access is in parallel, then we have a race
         if (__builtin_expect(previousAccessInParallel(&write_ma, f), false)) {
@@ -1492,21 +1706,35 @@ public:
     }
   }
 
+  // Implement a fast-path check for a determinacy race against a new write
+  // access.  This fast path is tailored for small (mem_size <= 2^LG_LINE_SIZE),
+  // aligned memory accesses.
   __attribute__((always_inline)) void
   check_write_fast(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
                    size_t mem_size, FrameData_t *f) {
-    RLine_t *__restrict__ read_line = Reads.getLine(addr, mem_size);
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    // Get the line storing the previous read to this location, if any.
+    const RLine_t *__restrict__ read_line =
+        Reads.getLine<RDict::Page_t>(addr, mem_size);
     // Since we only need to query the previous write access, we can still
     // handle this read even if we don't have a previous write access.
     bool need_read_check = read_line && !read_line->isEmpty();
-    if (need_read_check && (1 << read_line->getLgGrainsize()) != mem_size) {
+    if (need_read_check && (1 << read_line->getLgGrainsize()) != (unsigned)mem_size) {
+      // This access touches more than one entry in the line.  Handle it via the
+      // slow path.
       check_race_with_prev_read(acc_id, addr, mem_size, f);
       need_read_check = false;
     }
 
-    WLine_t *__restrict__ write_line = Writes.getOrCreateLine(addr, mem_size);
+    // Get the line storing the previous write to this location, if any.
+    WLine_t *__restrict__ write_line =
+        Writes.getLineMustExist<WDict::Page_t>(addr, mem_size);
+        // Writes.getOrCreateLine<WDict::Page_t>(addr, mem_size);
     bool need_update = true;
-    if ((1 << write_line->getLgGrainsize()) != mem_size) {
+    if ((1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
+      // This access touches more than one entry in the line.  Handle it via the
+      // slow path.
       check_and_update_write(acc_id, type, addr, mem_size, f);
       need_update = false;
     }
@@ -1514,6 +1742,8 @@ public:
     // We're now committed to handling this check.  Check and update the write
     // first, then check against the read.
 
+    // Perform a combined check-and-update of the write dictionary for this
+    // access, if need be.
     if (need_update) {
       // Materialize the write line if necessary
       if (!write_line->isMaterialized())
@@ -1523,7 +1753,8 @@ public:
       if (!write_ma->isValid()) {
         // If we're inserting a new write, increment the count of non-null
         // accesses in this line.
-        write_line->incNumNonNullAccs();
+        write_line->incNumNonNullEls();
+
         // Update the write MemoryAccess_t
         write_ma->set(f->getSbagForAccess(), acc_id, type);
       } else {
@@ -1542,9 +1773,10 @@ public:
       }
     }
 
+    // Check the previous read access for a race, if need be.
     if (need_read_check) {
       // Get the read MemoryAccess_t to query.
-      MemoryAccess_t &read_ma = (*read_line)[Reads.byte(addr)];
+      const MemoryAccess_t &read_ma = (*read_line)[Reads.byte(addr)];
       if (__builtin_expect(read_ma.isValid(), true)) {
         // If the previous access was in parallel, then we have a race
         if (previousAccessInParallel(&read_ma, f)) {
@@ -1558,8 +1790,182 @@ public:
     }
   }
 
-  __attribute__((always_inline))
-  void clear(size_t start, size_t size) {
+  // Methods for checking for data races and updating lockers.
+
+  template <typename DictTy, typename QITy, typename LQITy, bool prev_read,
+            bool is_read>
+  __attribute__((always_inline)) void
+  check_data_race(const DictTy &Dict, QITy &QI, const csi_id_t acc_id,
+                  MAType_t type, FrameData_t *f, const LockSet_t &LS) const {
+    while (!QI.isEnd()) {
+      // Find a previous access
+      const MemoryAccess_t *PrevAccess = QI.get();
+      if (PrevAccess && PrevAccess->isValid()) {
+        // If the previous access was in parallel, then we have a race
+        if (__builtin_expect(previousAccessInParallel(PrevAccess, f), false)) {
+          uintptr_t StartAddr = QI.getAddress();
+          // Get the next location to check
+          QI.next();
+          uintptr_t EndAddr = QI.getAddress();
+          cilksan_assert(EndAddr > StartAddr);
+
+          // Create a locker query iterator for the range of addresses
+          // [StartAddr, EndAddr) examined by the Query_iterator..
+          LQITy LQI =
+              Dict.getLockerQueryIterator(StartAddr, EndAddr - StartAddr);
+          while (!LQI.isEnd()) {
+            // Find lockers for previous accesses
+            const LockerList_t *PrevAccesses = LQI.get();
+            if (!PrevAccesses || !PrevAccesses->isValid() ||
+                dataRaceWithPreviousAccesses(PrevAccesses, f, LS)) {
+              // Report the race
+              uintptr_t AccAddr = LQI.getAddress();
+
+              if (prev_read)
+                CilkSanImpl.report_race(
+                    PrevAccess->getLoc(),
+                    AccessLoc_t(acc_id, type,
+                                CilkSanImpl.get_current_call_stack()),
+                    findAllocLoc(AccAddr), AccAddr, RW_RACE);
+              else {
+                if (is_read)
+                  CilkSanImpl.report_race(
+                      PrevAccess->getLoc(),
+                      AccessLoc_t(acc_id, type,
+                                  CilkSanImpl.get_current_call_stack()),
+                      findAllocLoc(AccAddr), AccAddr, WR_RACE);
+                else
+                  CilkSanImpl.report_race(
+                      PrevAccess->getLoc(),
+                      AccessLoc_t(acc_id, type,
+                                  CilkSanImpl.get_current_call_stack()),
+                      findAllocLoc(AccAddr), AccAddr, WW_RACE);
+              }
+            }
+            LQI.next();
+          }
+          continue;
+        }
+      }
+      QI.next();
+    }
+  }
+
+  __attribute__((always_inline)) void
+  check_data_race_with_prev_read(const csi_id_t acc_id, uintptr_t addr,
+                                 size_t mem_size, FrameData_t *f,
+                                 const LockSet_t &LS) const {
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using QITy = RDict::Query_iterator<RDict::Page_t>;
+    using LQITy = RDict::Query_iterator<RDict::LockerPage_t>;
+    QITy QI = Reads.getQueryIterator(addr, mem_size);
+    // The second argument does not matter here.
+    check_data_race<RDict, QITy, LQITy, true, false>(Reads, QI, acc_id,
+                                                     MAType_t::RW, f, LS);
+  }
+
+  template <bool is_read>
+  __attribute__((always_inline)) void
+  check_data_race_with_prev_write(const csi_id_t acc_id, MAType_t type,
+                                  uintptr_t addr, size_t mem_size,
+                                  FrameData_t *f, const LockSet_t &LS) const {
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    using QITy = WDict::Query_iterator<WDict::Page_t>;
+    using LQITy = WDict::Query_iterator<WDict::LockerPage_t>;
+    QITy QI = Writes.getQueryIterator(addr, mem_size);
+    check_data_race<WDict, QITy, LQITy, false, is_read>(Writes, QI, acc_id,
+                                                        type, f, LS);
+  }
+
+  template <typename UITy, class LockerSetFn>
+  __attribute__((always_inline)) void
+  update_lockers(UITy &UI, const csi_id_t acc_id, MAType_t type, FrameData_t *f,
+                 const LockSet_t &LS) {
+    while (!UI.isEnd()) {
+      UI.insert(LockerSetFn({LS, acc_id, type, f}));
+    }
+  }
+
+  __attribute__((always_inline)) void
+  update_lockers_with_read(const csi_id_t acc_id, uintptr_t addr,
+                           size_t mem_size, FrameData_t *f,
+                           const LockSet_t &LS) {
+    using RDict = SimpleDictionary<ReadMAAllocator>;
+    using UITy = RDict::Update_iterator<RDict::LockerPage_t>;
+    UITy UI = Reads.getLockerUpdateIterator(addr, mem_size);
+    update_lockers<UITy, RDict::LockerSetFn>(UI, acc_id, MAType_t::RW, f, LS);
+  }
+
+  __attribute__((always_inline)) void
+  check_data_race_and_update_write(const csi_id_t acc_id, MAType_t type,
+                                   uintptr_t addr, size_t mem_size,
+                                   FrameData_t *f, const LockSet_t &LS) {
+    using WDict = SimpleDictionary<WriteMAAllocator>;
+    using UITy = WDict::Update_iterator<WDict::Page_t>;
+    using LUITy = WDict::Update_iterator<WDict::LockerPage_t>;
+    UITy UI = Writes.getUpdateIterator(addr, mem_size);
+
+    while (!UI.isEnd()) {
+      // Find a previous access
+      MemoryAccess_t *PrevAccess = UI.get();
+      if (!PrevAccess || !PrevAccess->isValid()) {
+        // This is the first access to this location.
+        uintptr_t StartAddr = UI.getAddress();
+        UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+        uintptr_t EndAddr = UI.getAddress();
+        cilksan_assert(EndAddr > StartAddr);
+
+        // Update the lockers over the same range of addresses just updated.
+        LUITy LUI =
+            Writes.getLockerUpdateIterator(StartAddr, EndAddr - StartAddr);
+        update_lockers<LUITy, WDict::LockerSetFn>(LUI, acc_id, type, f, LS);
+      } else {
+        // If the previous access was in parallel, check for a data race.
+        if (__builtin_expect(previousAccessInParallel(PrevAccess, f), false)) {
+          uintptr_t StartAddr = UI.getAddress();
+          // Get the next location to check
+          UI.next();
+          uintptr_t EndAddr = UI.getAddress();
+          cilksan_assert(EndAddr > StartAddr);
+
+          // Create a locker update iterator for this range of addresses
+          LUITy LUI =
+              Writes.getLockerUpdateIterator(StartAddr, EndAddr - StartAddr);
+          // Check and update the lockers in this range of addresses
+          while (!LUI.isEnd()) {
+            // Find lockers for previous accesses
+            LockerList_t *PrevAccesses = LUI.get();
+            // Check for a data race
+            if (!PrevAccesses || !PrevAccesses->isValid() ||
+                dataRaceWithPreviousAccesses(PrevAccesses, f, LS)) {
+              // Report the race
+              uintptr_t AccAddr = LUI.getAddress();
+              CilkSanImpl.report_race(
+                  PrevAccess->getLoc(),
+                  AccessLoc_t(acc_id, type,
+                              CilkSanImpl.get_current_call_stack()),
+                  findAllocLoc(AccAddr), AccAddr, WW_RACE);
+            }
+            // Insert the new locker
+            LUI.insert(WDict::LockerSetFn({LS, acc_id, type, f}));
+          }
+        } else {
+          // Otherwise, the previous was in series, so update it
+          uintptr_t StartAddr = UI.getAddress();
+          UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+          uintptr_t EndAddr = UI.getAddress();
+          cilksan_assert(EndAddr > StartAddr);
+
+          // Update the lockers over the same range of addresses just updated.
+          LUITy LUI =
+              Writes.getLockerUpdateIterator(StartAddr, EndAddr - StartAddr);
+          update_lockers<LUITy, WDict::LockerSetFn>(LUI, acc_id, type, f, LS);
+        }
+      }
+    }
+  }
+
+  __attribute__((always_inline)) void clear(size_t start, size_t size) {
     Reads.clear(start, size);
     Writes.clear(start, size);
   }
@@ -1569,14 +1975,13 @@ public:
     Allocs.set(start, size, f->getSbagForAccess(), alloca_id, MAType_t::ALLOC);
   }
 
-  void record_free(size_t start, size_t size, FrameData_t *f,
-                   csi_id_t free_id, MAType_t type) {
+  void record_free(size_t start, size_t size, FrameData_t *f, csi_id_t free_id,
+                   MAType_t type) {
     Allocs.clear(start, size);
     Writes.set(start, size, f->getSbagForAccess(), free_id, type);
   }
 
-  __attribute__((always_inline))
-  void clear_alloc(size_t start, size_t size) {
+  __attribute__((always_inline)) void clear_alloc(size_t start, size_t size) {
     Allocs.clear(start, size);
   }
 };
