@@ -225,8 +225,10 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
 
   // Get the parent pointer after we push, because once pused, the
   // pointer may no longer be valid due to resize.
-  FrameData_t *parent = frame_stack.ancestor(1);
-  DBG_TRACE(DEBUG_CALLBACK, "parent frame %ld.\n", parent->frame_id);
+  WHEN_CILKSAN_DEBUG({
+    FrameData_t *parent = frame_stack.ancestor(1);
+    DBG_TRACE(DEBUG_CALLBACK, "parent frame %ld.\n", parent->frame_id);
+  });
   DisjointSet_t<SPBagInterface *> *child_sbag;
 
   FrameData_t *child = frame_stack.head();
@@ -332,21 +334,22 @@ inline void CilkSanImpl_t::complete_sync(unsigned sync_reg) {
 // Callback functions
 //---------------------------------------------------------------
 void CilkSanImpl_t::do_enter_begin(unsigned num_sync_reg) {
-  cilksan_assert(CILKSAN_INITIALIZED);
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = ENTER_FRAME);
   DBG_TRACE(DEBUG_CALLBACK,
-            "frame %ld cilk_enter_frame_begin, stack depth %d\n",
-            frame_id+1, frame_stack.size());
+            "frame %ld cilk_enter_frame_begin, stack depth %d\n", frame_id + 1,
+            frame_stack.size());
   enter_cilk_function(num_sync_reg);
   frame_stack.head()->frame_data.entry_type = SPAWNER;
   frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
 }
 
 void CilkSanImpl_t::do_enter_helper_begin(unsigned num_sync_reg) {
-  cilksan_assert(CILKSAN_INITIALIZED);
-  DBG_TRACE(DEBUG_CALLBACK, "frame %ld cilk_enter_helper_begin\n", frame_id+1);
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  DBG_TRACE(DEBUG_CALLBACK, "frame %ld cilk_enter_helper_begin\n",
+            frame_id + 1);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = ENTER_HELPER;);
 
   enter_cilk_function(num_sync_reg);
@@ -355,16 +358,16 @@ void CilkSanImpl_t::do_enter_helper_begin(unsigned num_sync_reg) {
 }
 
 void CilkSanImpl_t::do_enter_end(uintptr_t stack_ptr) {
-  cilksan_assert(CILKSAN_INITIALIZED);
-  cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  WHEN_CILKSAN_DEBUG(
+      cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
   DBG_TRACE(DEBUG_CALLBACK, "cilk_enter_end, frame stack ptr: %p\n", stack_ptr);
-
 }
 
 void CilkSanImpl_t::do_detach_begin() {
-  cilksan_assert(CILKSAN_INITIALIZED);
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = DETACH);
 
   update_strand_stats();
@@ -372,10 +375,10 @@ void CilkSanImpl_t::do_detach_begin() {
 }
 
 void CilkSanImpl_t::do_detach_end() {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_detach\n");
 
-  cilksan_assert(last_event == DETACH);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == DETACH));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 
   // At this point, the frame_stack.head is still the parent (spawning) frame
@@ -398,7 +401,7 @@ void CilkSanImpl_t::do_detach_end() {
 }
 
 void CilkSanImpl_t::do_detach_continue() {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_detach_continue\n");
 
   update_strand_stats();
@@ -536,10 +539,10 @@ void CilkSanImpl_t::do_loop_end(unsigned sync_reg) {
 }
 
 void CilkSanImpl_t::do_sync_begin() {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "frame %ld cilk_sync_begin\n",
             frame_stack.head()->Sbag->get_node()->get_func_id());
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = CILK_SYNC);
 
   update_strand_stats();
@@ -547,16 +550,16 @@ void CilkSanImpl_t::do_sync_begin() {
 }
 
 void CilkSanImpl_t::do_sync_end(unsigned sync_reg) {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_sync_end\n");
-  cilksan_assert(last_event == CILK_SYNC);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == CILK_SYNC));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
   complete_sync(sync_reg);
 }
 
 void CilkSanImpl_t::do_leave_begin(unsigned sync_reg) {
-  cilksan_assert(CILKSAN_INITIALIZED);
-  cilksan_assert(last_event == NONE);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = LEAVE_FRAME_OR_HELPER);
   DBG_TRACE(DEBUG_CALLBACK, "frame %ld cilk_leave_begin\n",
             frame_stack.head()->frame_id);
@@ -582,9 +585,9 @@ void CilkSanImpl_t::do_leave_begin(unsigned sync_reg) {
 }
 
 void CilkSanImpl_t::do_leave_end() {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_leave_end\n");
-  cilksan_assert(last_event == LEAVE_FRAME_OR_HELPER);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == LEAVE_FRAME_OR_HELPER));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 }
 
@@ -700,20 +703,12 @@ check_races_and_update_fast(const csi_id_t acc_id, MAType_t type,
 
 void CilkSanImpl_t::do_read(const csi_id_t load_id, uintptr_t addr,
                             size_t mem_size, unsigned alignment) {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_MEMORY, "record read %lu: %lu bytes at addr %p and rip %p.\n",
             load_id, mem_size, addr,
             (load_id != UNKNOWN_CSI_ID) ? load_pc[load_id] : 0);
-  if (collect_stats) {
-    ++total_reads_checked;
-    if (!num_reads_checked.count(mem_size))
-      num_reads_checked.insert(std::make_pair(mem_size, 0));
-    ++num_reads_checked[mem_size];
-
-    if (!strand_num_reads_checked.count(mem_size))
-      strand_num_reads_checked.insert(std::make_pair(mem_size, 0));
-    ++strand_num_reads_checked[mem_size];
-  }
+  if (collect_stats)
+    collect_read_stat(mem_size);
 
   bool on_stack = is_on_stack(addr);
   if (on_stack)
@@ -724,19 +719,11 @@ void CilkSanImpl_t::do_read(const csi_id_t load_id, uintptr_t addr,
 
 void CilkSanImpl_t::do_write(const csi_id_t store_id, uintptr_t addr,
                              size_t mem_size, unsigned alignment) {
-  cilksan_assert(CILKSAN_INITIALIZED);
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_MEMORY, "record write %ld: %lu bytes at addr %p and rip %p.\n",
             store_id, mem_size, addr, store_pc[store_id]);
-  if (collect_stats) {
-    ++total_writes_checked;
-    if (!num_writes_checked.count(mem_size))
-      num_writes_checked.insert(std::make_pair(mem_size, 0));
-    ++num_writes_checked[mem_size];
-
-    if (!strand_num_writes_checked.count(mem_size))
-      strand_num_writes_checked.insert(std::make_pair(mem_size, 0));
-    ++strand_num_writes_checked[mem_size];
-  }
+  if (collect_stats)
+    collect_write_stat(mem_size);
 
   bool on_stack = is_on_stack(addr);
   if (on_stack)

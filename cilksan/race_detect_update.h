@@ -29,10 +29,9 @@ __attribute__((always_inline)) void check_races_and_update_with_write(
 // f: pointer to current frame on the shadow stack
 // shadow_memory: shadow memory recording memory access information
 template <bool is_read>
-__attribute__((always_inline)) void
-check_races_and_update(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                       size_t mem_size, FrameData_t *f,
-                       SimpleShadowMem &shadow_memory);
+void check_races_and_update(const csi_id_t acc_id, MAType_t type,
+                            uintptr_t addr, size_t mem_size, FrameData_t *f,
+                            SimpleShadowMem &shadow_memory);
 
 // Fast-path check for races on memory [addr, addr+mem_size) with this memory
 // access.  Once done checking, update shadow_memory with the new access.

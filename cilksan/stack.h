@@ -10,8 +10,6 @@
 
 #include "debug_util.h"
 
-// TB 20130123: I'm using my own custom stack type to let me
-// performance engineer this later.
 /*
  * Stack data structure for storing and maintaining data
  * associated with the call stack.
@@ -85,7 +83,7 @@ public:
   void push() {
     ++_head;
 
-    if (_head == _capacity) {
+    if (__builtin_expect(_head == _capacity, false)) {
       _double_cap();
     }
   }

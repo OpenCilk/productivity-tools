@@ -166,6 +166,7 @@ public:
     return !(*this == that);
   }
 
+#if CILKSAN_DEBUG
   inline friend
   std::ostream& operator<<(std::ostream &os, const MemoryAccess_t &acc) {
     os << "function " << acc.func->get_node()->get_func_id()
@@ -173,6 +174,7 @@ public:
        << ", version " << acc.getVersion();
     return os;
   }
+#endif
 
   // // Simple free-list allocator to conserve space and time in managing
   // // arrays of PAGE_SIZE MemoryAccess_t objects.
