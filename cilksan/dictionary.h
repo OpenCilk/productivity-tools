@@ -9,6 +9,7 @@
 
 #include "debug_util.h"
 #include "disjointset.h"
+#include "frame_data.h"
 #include "race_info.h"
 #include "spbag.h"
 
@@ -217,6 +218,29 @@ public:
   //     }
   //   }
   // }
+
+  // Logic to check if the given previous MemoryAccess_t is logically in
+  // parallel with the current strand.
+  __attribute__((always_inline)) static bool
+  previousAccessInParallel(MemoryAccess_t *PrevAccess, FrameData_t *f) {
+    // Get the function for this previous access
+    auto Func = PrevAccess->getFunc();
+    // Get the bag for the previous access
+    SPBagInterface *LCA = Func->get_set_node();
+    // If it's a P-bag, then we have a parallel access.
+
+    // If memory is allocated on stack, the accesses race with each other only
+    // if the mem location is allocated in shared ancestor's stack.  We don't
+    // need to check for this because we clear shadow memory; non-shared stack
+    // can't race because earlier one would've been cleared.
+    return LCA->is_PBag() || f->check_parallel_iter(static_cast<SBag_t *>(LCA),
+                                                    PrevAccess->getVersion());
+  }
+  __attribute__((always_inline)) static bool
+  previousAccessInParallel(const MemoryAccess_t *PrevAccess, FrameData_t *f) {
+    return previousAccessInParallel(const_cast<MemoryAccess_t *>(PrevAccess),
+                                    f);
+  }
 };
 
 #endif  // __DICTIONARY__
