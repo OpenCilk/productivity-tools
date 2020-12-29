@@ -627,7 +627,11 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this read.
-  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
+
+  if (__builtin_expect(CilkSanImpl.locks_held(), false))
+    CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
+  else
+    CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -653,7 +657,10 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this read.
-  CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
+  if (__builtin_expect(CilkSanImpl.locks_held(), false))
+    CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
+  else
+    CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -679,7 +686,11 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this write.
-  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
+  if (__builtin_expect(CilkSanImpl.locks_held(), false))
+    CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
+                                prop.alignment);
+  else
+    CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
@@ -705,7 +716,11 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
   // Record this write.
-  CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
+  if (__builtin_expect(CilkSanImpl.locks_held(), false))
+    CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
+                                prop.alignment);
+  else
+    CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
 CILKSAN_API
