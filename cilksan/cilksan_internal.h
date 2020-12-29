@@ -12,6 +12,7 @@
 #include "dictionary.h"
 #include "disjointset.h"
 #include "frame_data.h"
+#include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "stack.h"
 
@@ -152,6 +153,21 @@ public:
     return call_stack;
   }
 
+  // Methods for locked accesses
+  inline void do_acquire_lock(uintptr_t addr) {
+    lockset.insert(addr);
+    lockset_empty = false;
+  }
+  inline void do_release_lock(uintptr_t addr) {
+    lockset.remove(addr);
+    lockset_empty = lockset.isEmpty();
+  }
+  inline bool locks_held() const { return !lockset_empty; }
+  void do_locked_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+                      unsigned alignment);
+  void do_locked_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+                       unsigned alignment);
+
   // defined in print_addr.cpp
   void report_race(
       const AccessLoc_t &first_inst, const AccessLoc_t &second_inst,
@@ -177,7 +193,9 @@ private:
   template <bool is_read>
   inline void record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                 size_t mem_size, unsigned alignment);
-  // inline void print_current_function_info();
+  template <bool is_read>
+  inline void record_locked_mem_helper(const csi_id_t acc_id, uintptr_t addr,
+                                       size_t mem_size, unsigned alignment);
   inline void print_stats();
   static bool ColorizeReports();
   static bool PauseOnRace();
@@ -201,6 +219,10 @@ private:
 
   // Flag for whether the next loop iteration is the first iteration of a loop
   bool start_new_loop = false;
+
+  // Set of locks held at the current instruction
+  bool lockset_empty = true;
+  LockSet_t lockset;
 
   // Shadow memory, which maps a memory address to its last reader and writer
   // and allocation.

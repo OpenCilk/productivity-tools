@@ -620,6 +620,37 @@ CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                   *shadow_memory);
 }
 
+// called by do_locked_read and do_locked_write.
+template <bool is_read>
+void CilkSanImpl_t::record_locked_mem_helper(const csi_id_t acc_id,
+                                             uintptr_t addr, size_t mem_size,
+                                             unsigned alignment) {
+  // Do nothing for 0-byte accesses
+  if (!mem_size)
+    return;
+
+  // TODO: Add a fast path for handling locked accesses.
+
+  // // Use fast path for small, statically aligned accesses.
+  // if (alignment &&
+  //     alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
+  //     mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
+  //   // We're committed to using the fast-path check.  Update the occupied bits,
+  //   // and if that process discovers unoccupied entries, perform the check.
+  //   if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
+  //     FrameData_t *f = frame_stack.head();
+  //     check_races_and_update_fast<is_read>(acc_id, MAType_t::RW, addr, mem_size,
+  //                                          f, *shadow_memory);
+  //   }
+  //   // Return early.
+  //   return;
+  // }
+
+  FrameData_t *f = frame_stack.head();
+  check_data_races_and_update<is_read>(acc_id, MAType_t::RW, addr, mem_size, f,
+                                       lockset, *shadow_memory);
+}
+
 void CilkSanImpl_t::record_free(uintptr_t addr, size_t mem_size,
                                 csi_id_t acc_id, MAType_t type) {
   // Do nothing for 0-byte frees
@@ -702,6 +733,60 @@ check_races_and_update_fast(const csi_id_t acc_id, MAType_t type,
     shadow_memory.check_write_fast(acc_id, type, addr, mem_size, f);
 }
 
+// Check data races on memory [addr, addr+mem_size) with this read access.  Once
+// done checking, update shadow_memory with this new read access.
+__attribute__((always_inline)) void check_data_races_and_update_with_read(
+    const csi_id_t acc_id, uintptr_t addr, size_t mem_size, FrameData_t *f,
+    const LockSet_t &lockset, SimpleShadowMem &shadow_memory) {
+  shadow_memory.update_with_read(acc_id, addr, mem_size, f);
+  shadow_memory.update_lockers_with_read(acc_id, addr, mem_size, f, lockset);
+  shadow_memory.check_data_race_with_prev_write<true>(
+      acc_id, MAType_t::RW, addr, mem_size, f, lockset);
+}
+
+// Check data races on memory [addr, addr+mem_size) with this write access.
+// Once done checking, update shadow_memory with this new read access.  Very
+// similar to check_data_races_and_update_with_read function.
+__attribute__((always_inline)) void check_data_races_and_update_with_write(
+    const csi_id_t acc_id, MAType_t type, uintptr_t addr, size_t mem_size,
+    FrameData_t *f, const LockSet_t &lockset, SimpleShadowMem &shadow_memory) {
+  shadow_memory.check_data_race_and_update_write(acc_id, type, addr, mem_size,
+                                                 f, lockset);
+  shadow_memory.check_data_race_with_prev_read(acc_id, addr, mem_size, f,
+                                               lockset);
+}
+
+// Check for data races on memory [addr, addr+mem_size) with this memory access.
+// Once done checking, update shadow_memory with the new access.
+//
+// is_read: whether or not this access reads memory
+// acc_id: ID of the memory-access instruction
+// type: type of memory access, e.g., a read/write, an allocation, a free
+// addr: memory address accessed
+// mem_size: number of bytes accessed, starting at addr
+// f: pointer to current frame on the shadow stack
+// lockset: set of currently held locks
+// shadow_memory: shadow memory recording memory access information
+template <bool is_read>
+void check_data_races_and_update(const csi_id_t acc_id, MAType_t type,
+                                 uintptr_t addr, size_t mem_size, FrameData_t *f,
+                                 const LockSet_t &lockset,
+                                 SimpleShadowMem &shadow_memory) {
+  // Set the occupancy bits in the shadow memory, to deduplicate memory accesses
+  // in the same strand at runtime.  If we find that all occupancy bits for
+  // [addr, addr+mem_size) are already set, then this access is redundant with a
+  // previous access in the same strand, and we can quit early.
+  if (!shadow_memory.setOccupied(is_read, addr, mem_size))
+    return;
+
+  if (is_read)
+    check_data_races_and_update_with_read(acc_id, addr, mem_size, f, lockset,
+                                          shadow_memory);
+  else
+    check_data_races_and_update_with_write(acc_id, type, addr, mem_size, f,
+                                           lockset, shadow_memory);
+}
+
 void CilkSanImpl_t::do_read(const csi_id_t load_id, uintptr_t addr,
                             size_t mem_size, unsigned alignment) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
@@ -731,6 +816,39 @@ void CilkSanImpl_t::do_write(const csi_id_t store_id, uintptr_t addr,
     advance_stack_frame(addr);
 
   record_mem_helper<false>(store_id, addr, mem_size, alignment);
+}
+
+void CilkSanImpl_t::do_locked_read(const csi_id_t load_id, uintptr_t addr,
+                                   size_t mem_size, unsigned alignment) {
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  DBG_TRACE(DEBUG_MEMORY,
+            "record read %lu: %lu bytes at addr %p and rip %p, locked.\n",
+            load_id, mem_size, addr,
+            (load_id != UNKNOWN_CSI_ID) ? load_pc[load_id] : 0);
+  if (collect_stats)
+    collect_read_stat(mem_size);
+
+  bool on_stack = is_on_stack(addr);
+  if (on_stack)
+    advance_stack_frame(addr);
+
+  record_locked_mem_helper<true>(load_id, addr, mem_size, alignment);
+}
+
+void CilkSanImpl_t::do_locked_write(const csi_id_t store_id, uintptr_t addr,
+                                    size_t mem_size, unsigned alignment) {
+  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
+  DBG_TRACE(DEBUG_MEMORY,
+            "record write %ld: %lu bytes at addr %p and rip %p, locked.\n",
+            store_id, mem_size, addr, store_pc[store_id]);
+  if (collect_stats)
+    collect_write_stat(mem_size);
+
+  bool on_stack = is_on_stack(addr);
+  if (on_stack)
+    advance_stack_frame(addr);
+
+  record_locked_mem_helper<false>(store_id, addr, mem_size, alignment);
 }
 
 // clear the memory block at [start,start+size) (end is exclusive).
