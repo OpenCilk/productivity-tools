@@ -1,6 +1,6 @@
-#include <assert.h>
+#include <cassert>
 #include <csi/csi.h>
-#include <stdlib.h>
+#include <cstdlib>
 
 #define CSIRT_API __attribute__((visibility("default")))
 
@@ -150,6 +150,14 @@ static inline const source_loc_t *get_fed_entry(fed_type_t fed_type,
   return NULL;
 }
 
+static inline void free_fed_table(fed_type_t fed_type) {
+  fed_table_t *table = &fed_tables[fed_type];
+  if (table->entries) {
+    free(table->entries);
+    table->entries = NULL;
+  }
+}
+
 // Initialize the object tables list, indexed by a value of type
 // sizeinfo_type_t. This is called once, by the first unit to load.
 static void initialize_sizeinfo_tables() {
@@ -217,6 +225,14 @@ get_sizeinfo_entry(sizeinfo_type_t sizeinfo_type, const csi_id_t csi_id) {
   return NULL;
 }
 
+static inline void free_sizeinfo_table(sizeinfo_type_t sizeinfo_type) {
+  sizeinfo_table_t *table = &sizeinfo_tables[sizeinfo_type];
+  if (table->entries) {
+    free(table->entries);
+    table->entries = NULL;
+  }
+}
+
 // ------------------------------------------------------------------------
 // External function definitions, including CSIRT API functions.
 // ------------------------------------------------------------------------
@@ -251,6 +267,25 @@ static inline void compute_inst_counts(instrumentation_counts_t *counts,
     *(base + i) = unit_fed_tables[i].num_entries;
 }
 
+// Deinitialize the CSI runtime
+void __csi_deinit(void) {
+  // Free all FED tables
+  if (fed_tables) {
+    for (int i = 0; i < NUM_FED_TYPES; ++i) {
+      free_fed_table((fed_type_t)i);
+    }
+    free(fed_tables);
+  }
+
+  // Free all sizeinfo tables
+  if (sizeinfo_tables) {
+    for (int i = 0; i < NUM_SIZEINFO_TYPES; ++i) {
+      free_sizeinfo_table((sizeinfo_type_t)i);
+    }
+    free(sizeinfo_tables);
+  }
+}
+
 // A call to this is inserted by the CSI compiler pass, and occurs
 // before main().
 CSIRT_API
@@ -264,6 +299,8 @@ void __csirt_unit_init(const char *const name,
   // TODO(ddoucet): threadsafety
   if (!csi_init_called) {
     __csi_init();
+    // Deinitialize the CSI runtime at program termination
+    std::atexit(__csi_deinit);
     csi_init_called = true;
   }
 
