@@ -955,9 +955,18 @@ void CilkSanImpl_t::deinit() {
 void CilkSanImpl_t::init() {
   DBG_TRACE(DEBUG_CALLBACK, "cilksan_init()\n");
 
-  char *e = getenv("CILKSAN_STATS");
-  if (e && 0 != strcmp(e, "0"))
-    collect_stats = true;
+  // Enable stats collection if requested
+  {
+    char *e = getenv("CILKSAN_STATS");
+    if (e && 0 != strcmp(e, "0"))
+      collect_stats = true;
+  }
+  // Enable checking of atomics if requested
+  {
+    char *e = getenv("CILKSAN_CHECK_ATOMICS");
+    if (e && 0 != strcmp(e, "0"))
+      check_atomics = true;
+  }
 
   std::cout << "Running Cilksan race detector.\n";
 

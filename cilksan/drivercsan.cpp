@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
-#include <execinfo.h>
 #include <map>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -599,7 +598,6 @@ CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
 CILKSAN_API
 void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
                  load_prop_t prop) {
-  // TODO: Use alignment information.
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
@@ -618,8 +616,13 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
     load_pc[load_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
-  // Record this read.
 
+  // Record this read.
+  if (prop.is_atomic) {
+    CilkSanImpl.do_atomic_read(load_id, (uintptr_t)addr, size, prop.alignment,
+                               atomic_lock_id);
+    return;
+  }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
     CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
   else
@@ -629,7 +632,6 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
 CILKSAN_API
 void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
                        load_prop_t prop) {
-  // TODO: Use alignment information.
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
@@ -648,7 +650,13 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     load_pc[load_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
+
   // Record this read.
+  if (prop.is_atomic) {
+    CilkSanImpl.do_atomic_read(load_id, (uintptr_t)addr, size, prop.alignment,
+                               atomic_lock_id);
+    return;
+  }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
     CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
   else
@@ -658,7 +666,6 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
 CILKSAN_API
 void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
                   store_prop_t prop) {
-  // TODO: Use alignment information.
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
@@ -677,7 +684,13 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
     store_pc[store_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
+
   // Record this write.
+  if (prop.is_atomic) {
+    CilkSanImpl.do_atomic_write(store_id, (uintptr_t)addr, size, prop.alignment,
+                                atomic_lock_id);
+    return;
+  }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
     CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
                                 prop.alignment);
@@ -688,7 +701,6 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
 CILKSAN_API
 void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
                         store_prop_t prop) {
-  // TODO: Use alignment information.
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
@@ -707,7 +719,13 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     store_pc[store_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
+
   // Record this write.
+  if (prop.is_atomic) {
+    CilkSanImpl.do_atomic_write(store_id, (uintptr_t)addr, size, prop.alignment,
+                                atomic_lock_id);
+    return;
+  }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
     CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
                                 prop.alignment);
