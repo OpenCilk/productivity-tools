@@ -144,12 +144,44 @@ static obj_table_t *obj_tables = NULL;
 static bool obj_tables_initialized = false;
 
 // Initially false, set to true once the first unit is initialized,
-// which results in the __csi_init() function being called.
-static bool csi_init_called = false;
+// which results in the __csan_init() function being called.
+static bool csan_init_called = false;
 
 // ------------------------------------------------------------------------
 // Private function definitions
 // ------------------------------------------------------------------------
+
+// Linked list of previously-allocated FED tables whose deallocation must be
+// deferred until program termination.
+struct old_fed_tables_list_t {
+  // Number of previously-malloc'd FED tables in tables array.
+  uint64_t num_tables = 0;
+  // Pointer to a malloc'd array of previously-malloc'd FED tables.
+  fed_table_t *tables = nullptr;
+  // Pointer to next node in the list.
+  old_fed_tables_list_t *next = nullptr;
+
+  old_fed_tables_list_t(uint64_t num_old_tables, fed_table_t *old_tables,
+                        old_fed_tables_list_t *list)
+      : num_tables(num_old_tables), tables(old_tables), next(list) {}
+  ~old_fed_tables_list_t() {
+    if (next) {
+      delete next;
+      next = nullptr;
+    }
+    if (tables) {
+      for (uint64_t i = 0; i < num_tables; ++i) {
+        if (tables[i].entries) {
+          free(tables[i].entries);
+          tables[i].entries = nullptr;
+        }
+      }
+      free(tables);
+      tables = nullptr;
+    }
+  }
+};
+static old_fed_tables_list_t *old_tables_list = nullptr;
 
 // NOTE: All functions modifying the FED tables and the index are NOT thread
 // safe and MUST be protected by a mutex.
@@ -163,10 +195,16 @@ allocate_new_table_and_append_to_index(fed_table_index_t *index) {
         (fed_table_t *)calloc(sizeof(fed_table_t), index->capacity * 2);
     memcpy(new_tables, old_tables, sizeof(fed_table_t) * index->capacity);
 
+    // We cannot free the old tables immediately, in case they are being
+    // accessed.  Add the tables to old_tables_list instead, so they can be
+    // freed at program termination.
+    old_tables_list = new old_fed_tables_list_t(index->num_tables, old_tables,
+                                                old_tables_list);
+
     index->capacity = index->capacity * 2;
     index->tables = new_tables;
-    // Unfortunately, we cannot free the old tables, in case they are being
-    // accessed.
+    // // Unfortunately, we cannot free the old tables, in case they are being
+    // // accessed.
   }
 
   // Now we are guaranteed to have space for another table in the index.
@@ -225,6 +263,20 @@ static inline void add_fed_table(fed_type_t fed_type, uint64_t num_entries,
   }
 
   index->num_total_entries += num_entries;
+}
+
+// Free the storage for the FED table of the given type.
+static inline void free_fed_table(fed_type_t fed_type) {
+  fed_table_index_t *index = &fed_tables[fed_type];
+  // Free the entries for each table in the index
+  for (uint64_t i = 0; i < index->num_tables; ++i) {
+    if (index->tables[i].entries) {
+      free(index->tables[i].entries);
+      index->tables[i].entries = nullptr;
+    }
+  }
+  // Free the storage for the index
+  free(index->tables);
 }
 
 // The unit-local counter pointed to by 'fed_id_base' keeps track of
@@ -315,6 +367,14 @@ static inline void add_obj_table(obj_type_t obj_type, int64_t num_entries,
     table->entries[base + i] = obj_entries[i];
 }
 
+// Deallocate the storage for the object table of the given type.
+static inline void free_obj_table(obj_type_t obj_type) {
+  if (obj_tables[obj_type].entries) {
+    delete[] obj_tables[obj_type].entries;
+    obj_tables[obj_type].entries = nullptr;
+  }
+}
+
 // Return the object entry of the given type, corresponding to the given
 // CSI ID.
 static inline const obj_source_loc_t *get_obj_entry(obj_type_t obj_type,
@@ -329,16 +389,14 @@ static inline const obj_source_loc_t *get_obj_entry(obj_type_t obj_type,
 }
 
 // ------------------------------------------------------------------------
-// External function definitions, including CSIRT API functions.
+// External function definitions, including CSANRT API functions.
 // ------------------------------------------------------------------------
 
 EXTERN_C
 
+void __csan_init();
 void __csan_unit_init(const char * const file_name,
                       const csan_instrumentation_counts_t counts);
-
-// Not used at the moment
-// __thread bool __csi_disable_instrumentation;
 
 typedef struct {
   int64_t num_entries;
@@ -362,22 +420,41 @@ static inline void compute_inst_counts(csan_instrumentation_counts_t *counts,
     *(base + i) = unit_fed_tables[i].num_entries;
 }
 
+// Deinitialize the CSAN runtime.
+void __csan_deinit(void) {
+  // Free all FED tables
+  if (fed_tables) {
+    for (unsigned i = 0; i < NUM_FED_TYPES; ++i) {
+      free_fed_table((fed_type_t)i);
+    }
+    free(fed_tables);
+  }
+
+  // Free all object tables
+  if (obj_tables) {
+    for (unsigned i = 0; i < NUM_OBJ_TYPES; ++i) {
+      free_obj_table((obj_type_t)i);
+    }
+    delete[] obj_tables;
+  }
+
+  delete old_tables_list;
+}
+
 std::atomic<int32_t> lock{0};
 
 // A call to this is inserted by the CSI compiler pass, and occurs
 // before main().
 CSIRT_API
-void __csirt_unit_init(const char * const name,
-                       unit_fed_table_t *unit_fed_tables,
-                       unit_obj_table_t *unit_obj_tables,
-                       __csi_init_callsite_to_functions callsite_to_func_init) {
-  // Make sure we don't instrument things in __csi_init or __csi_unit init.
-  // __csi_disable_instrumentation = true;
-
-  // TODO(ddoucet): threadsafety
-  if (!csi_init_called) {
-    __csi_init();
-    csi_init_called = true;
+void __csanrt_unit_init(
+    const char *const name, unit_fed_table_t *unit_fed_tables,
+    unit_obj_table_t *unit_obj_tables,
+    __csi_init_callsite_to_functions callsite_to_func_init) {
+  if (!csan_init_called) {
+    __csan_init();
+    // Deinitialize the CSI runtime at program termination
+    std::atexit(__csan_deinit);
+    csan_init_called = true;
   }
 
   int32_t acquired = 0;
@@ -411,9 +488,6 @@ void __csirt_unit_init(const char * const name,
   csan_instrumentation_counts_t counts;
   compute_inst_counts(&counts, unit_fed_tables);
   __csan_unit_init(name, counts);
-
-  // Reset disable flag.
-  // __csi_disable_instrumentation = false;
 
   acquired = 1;
   assert(lock == acquired);

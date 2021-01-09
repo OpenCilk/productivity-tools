@@ -231,9 +231,9 @@ static void init_internal() {
   }
 }
 
-CILKSAN_API void __csi_init() {
+CILKSAN_API void __csan_init() {
   // This method should only be called once.
-  cilksan_assert(!TOOL_INITIALIZED && "__csi_init() called multiple times.");
+  cilksan_assert(!TOOL_INITIALIZED && "__csan_init() called multiple times.");
 
   // We use the automatic deallocation of the CilkSanImpl top-level tool object
   // to shutdown and cleanup the tool at program termination.
