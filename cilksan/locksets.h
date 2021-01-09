@@ -18,26 +18,28 @@ enum IntersectionResult_t : uint8_t {
   L_EQUAL_R = L_SUBSET_OF_R | L_SUPERSET_OF_R,
 };
 
+using LockID_t = uint64_t;
+
 // Class representing a set of locks held during an access.
 class LockSet_t {
 private:
-  uintptr_t *IDs = nullptr;
+  LockID_t *IDs = nullptr;
   size_t end = 0;
   size_t capacity = 1;
 
   void resize(size_t new_capacity) {
     // If we haven't yet allocated the IDs array, create a new array.
     if (!IDs) {
-      IDs = new uintptr_t[new_capacity];
+      IDs = new LockID_t[new_capacity];
       capacity = new_capacity;
       return;
     }
 
     // Save a pointer to the old IDs array.
-    uintptr_t *oldIDs = IDs;
+    LockID_t *oldIDs = IDs;
 
     // Allocate a new IDs array;
-    IDs = new uintptr_t[new_capacity];
+    IDs = new LockID_t[new_capacity];
 
     // Copy from oldIDs into the new IDs array.
     size_t copy_end = capacity > new_capacity ? new_capacity : capacity;
@@ -53,20 +55,18 @@ private:
 public:
   // Default constructor
   LockSet_t() {
-    IDs = new uintptr_t[capacity];
+    IDs = new LockID_t[capacity];
   }
   // Copy constructor
   LockSet_t(const LockSet_t &copy)
       : end(copy.end), capacity(copy.capacity) {
-    IDs = new uintptr_t[capacity];
+    IDs = new LockID_t[capacity];
     for (size_t i = 0; i < end; ++i)
       IDs[i] = copy.IDs[i];
   }
   // Move constructor
   LockSet_t(const LockSet_t &&move)
-      : IDs(move.IDs), end(move.end), capacity(move.capacity) {
-    fprintf(stderr, "Called LockSet_t move constructor\n");
-  }
+      : IDs(move.IDs), end(move.end), capacity(move.capacity) {}
 
   // Destructor
   ~LockSet_t() {
@@ -83,10 +83,10 @@ public:
   size_t size() const { return end; }
 
   // Get the lock ID at index i in this lockset.
-  uintptr_t &operator[](size_t i) const { return IDs[i]; }
+  LockID_t &operator[](size_t i) const { return IDs[i]; }
 
   // Insert a new lock ID into this lockset.
-  void insert(uintptr_t new_lock_id) {
+  void insert(LockID_t new_lock_id) {
     if (end == capacity)
       resize(2 * capacity);
 
@@ -97,8 +97,9 @@ public:
       ++i;
 
     // If we found the new lock ID already in this lockset, return early.
-    if (IDs[i] == new_lock_id)
+    if (i < end && IDs[i] == new_lock_id) {
       return;
+    }
 
     // Move IDs at position >= i forward by 1.
     for (size_t j = end; j > i; --j)
@@ -112,14 +113,16 @@ public:
   }
 
   // Remove the specified lock ID from this lockset.
-  void remove(uintptr_t lock_id) {
+  void remove(LockID_t lock_id) {
     // Scan the IDs until we find the given lock ID.
     size_t i = 0;
     while (i < end && IDs[i] < lock_id)
       ++i;
 
-    cilksan_assert((IDs[i] == lock_id) &&
-                   "Lock ID to remove is not in this lockset.");
+    // cilksan_assert((IDs[i] == lock_id) &&
+    //                "Lock ID to remove is not in this lockset.");
+    if (IDs[i] != lock_id)
+      fprintf(stderr, "  Lock ID to remove is not in this lockset.\n");
 
     // Move the IDs greater than the given lock ID back by 1.
     for (size_t j = i; j < end - 1; ++j)
@@ -291,11 +294,38 @@ class LockerList_t {
 public:
   Locker_t *head = nullptr;
 
+  LockerList_t() = default;
+  LockerList_t(const LockerList_t &copy) {
+    // Perform a deep copy of the list of lockers
+    Locker_t *next_locker = copy.head;
+    Locker_t **prev = &head;
+    while (next_locker) {
+      *prev = new Locker_t(next_locker->getAccess(), next_locker->getLockSet());
+      prev = &(*prev)->next;
+      next_locker = next_locker->getNext();
+    }
+  }
   ~LockerList_t() {
     if (head) {
       delete head;
       head = nullptr;
     }
+  }
+
+  LockerList_t &operator=(const LockerList_t &copy) {
+    if (head)
+      delete head;
+
+    // Perform a deep copy of the list of lockers
+    Locker_t *next_locker = copy.head;
+    Locker_t **prev = &head;
+    while (next_locker) {
+      *prev = new Locker_t(next_locker->getAccess(), next_locker->getLockSet());
+      prev = &(*prev)->next;
+      next_locker = next_locker->getNext();
+    }
+
+    return *this;
   }
 
   Locker_t *&getHead() { return head; }

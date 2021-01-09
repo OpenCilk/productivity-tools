@@ -154,12 +154,12 @@ public:
   }
 
   // Methods for locked accesses
-  inline void do_acquire_lock(uintptr_t addr) {
-    lockset.insert(addr);
+  inline void do_acquire_lock(LockID_t lock_id) {
+    lockset.insert(lock_id);
     lockset_empty = false;
   }
-  inline void do_release_lock(uintptr_t addr) {
-    lockset.remove(addr);
+  inline void do_release_lock(LockID_t lock_id) {
+    lockset.remove(lock_id);
     lockset_empty = lockset.isEmpty();
   }
   inline bool locks_held() const { return !lockset_empty; }
