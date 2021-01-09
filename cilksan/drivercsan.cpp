@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <map>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <unordered_map>
@@ -12,6 +13,7 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "stack.h"
+#include "addrmap.h"
 
 #define CILKSAN_API extern "C" __attribute__((visibility("default")))
 #define CALLERPC ((uintptr_t)__builtin_return_address(0))
@@ -52,6 +54,12 @@ static csi_id_t total_store = 0;
 static csi_id_t total_alloca = 0;
 static csi_id_t total_allocfn = 0;
 static csi_id_t total_free = 0;
+
+// Running counter to track the next available lock ID.  We reserve lock_id == 0
+// for atomic operations.
+static LockID_t atomic_lock_id = 0;
+static LockID_t next_lock_id = atomic_lock_id + 1;
+static AddrMap_t<LockID_t> lock_ids;
 
 static bool TOOL_INITIALIZED = false;
 
@@ -1328,4 +1336,118 @@ void __wrap___cilkrts_hyper_dealloc(void *ignored, void *view) {
     malloc_sizes.erase(iter);
   }
   __real___cilkrts_hyper_dealloc(ignored, view);
+}
+
+// Interposers for Pthread locking routines
+extern "C" __cilkrts_worker *__cilkrts_get_tls_worker();
+
+typedef int (*pthread_mutex_init_t)(pthread_mutex_t *,
+                                    const pthread_mutexattr_t *);
+static pthread_mutex_init_t dl_pthread_mutex_init = NULL;
+
+typedef int (*pthread_mutex_destroy_t)(pthread_mutex_t *);
+static pthread_mutex_destroy_t dl_pthread_mutex_destroy = NULL;
+
+typedef int(*pthread_mutex_lockfn_t)(pthread_mutex_t *);
+static pthread_mutex_lockfn_t dl_pthread_mutex_lock = NULL;
+static pthread_mutex_lockfn_t dl_pthread_mutex_trylock = NULL;
+static pthread_mutex_lockfn_t dl_pthread_mutex_unlock = NULL;
+
+CILKSAN_API int pthread_mutex_init(pthread_mutex_t *mutex,
+                                   const pthread_mutexattr_t *attr) {
+  if (__builtin_expect(dl_pthread_mutex_init == NULL, false)) {
+    dl_pthread_mutex_init =
+        (pthread_mutex_init_t)dlsym(RTLD_NEXT, "pthread_mutex_init");
+    char *error = dlerror();
+    if (error != NULL) {
+      fputs(error, err_io);
+      fflush(err_io);
+      abort();
+    }
+  }
+
+  int result = dl_pthread_mutex_init(mutex, attr);
+  if (TOOL_INITIALIZED) {
+    lock_ids.insert((uintptr_t)mutex, next_lock_id++);
+  }
+  return result;
+}
+
+CILKSAN_API int pthread_mutex_destroy(pthread_mutex_t *mutex) {
+  if (__builtin_expect(dl_pthread_mutex_destroy == NULL, false)) {
+    dl_pthread_mutex_destroy =
+        (pthread_mutex_destroy_t)dlsym(RTLD_NEXT, "pthread_mutex_destroy");
+    char *error = dlerror();
+    if (error != NULL) {
+      fputs(error, err_io);
+      fflush(err_io);
+      abort();
+    }
+  }
+
+  int result = dl_pthread_mutex_destroy(mutex);
+  if (lock_ids.contains((uintptr_t)mutex)) {
+    lock_ids.remove((uintptr_t)mutex);
+  }
+  return result;
+}
+
+CILKSAN_API int pthread_mutex_lock(pthread_mutex_t *mutex) {
+  if (__builtin_expect(dl_pthread_mutex_lock == NULL, false)) {
+    dl_pthread_mutex_lock =
+        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_lock");
+    char *error = dlerror();
+    if (error != NULL) {
+      fputs(error, err_io);
+      fflush(err_io);
+      abort();
+    }
+  }
+
+  int result = dl_pthread_mutex_lock(mutex);
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      parallel_execution.back() && !result)
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_acquire_lock((LockID_t)*lock_id);
+  return result;
+}
+
+CILKSAN_API int pthread_mutex_trylock(pthread_mutex_t *mutex) {
+  if (__builtin_expect(dl_pthread_mutex_trylock == NULL, false)) {
+    dl_pthread_mutex_trylock =
+        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_trylock");
+    char *error = dlerror();
+    if (error != NULL) {
+      fputs(error, err_io);
+      fflush(err_io);
+      abort();
+    }
+  }
+
+  int result = dl_pthread_mutex_trylock(mutex);
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      parallel_execution.back() && !result)
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_acquire_lock((LockID_t)*lock_id);
+  return result;
+}
+
+CILKSAN_API int pthread_mutex_unlock(pthread_mutex_t *mutex) {
+  if (__builtin_expect(dl_pthread_mutex_unlock == NULL, false)) {
+    dl_pthread_mutex_unlock =
+        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_unlock");
+    char *error = dlerror();
+    if (error != NULL) {
+      fputs(error, err_io);
+      fflush(err_io);
+      abort();
+    }
+  }
+
+  int result = dl_pthread_mutex_unlock(mutex);
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      parallel_execution.back() && !result)
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_release_lock((LockID_t)*lock_id);
+  return result;
 }

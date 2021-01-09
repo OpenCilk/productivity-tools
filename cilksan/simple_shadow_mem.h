@@ -615,10 +615,6 @@ private:
 
     // Static helper methods for operating on occupancy bits
     __attribute__((always_inline)) static uintptr_t
-    occupancyWordAddr(uintptr_t addr) {
-      return (addr & OCCUPANCY_WORD_MASK);
-    }
-    __attribute__((always_inline)) static uintptr_t
     occupancyWord(uintptr_t addr) {
       return ((addr & OCCUPANCY_WORD_IDX) >> LG_OCCUPANCY_WORD_SIZE);
     }
@@ -1645,7 +1641,7 @@ public:
     if (need_check && (1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
       // This access touches more than one entry in the line.  Handle it via the
       // slow path.
-      check_race_with_prev_write<false>(acc_id, type, addr, mem_size, f);
+      check_race_with_prev_write<true>(acc_id, type, addr, mem_size, f);
       need_check = false;
     }
 
