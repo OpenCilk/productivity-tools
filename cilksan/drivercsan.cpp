@@ -757,7 +757,8 @@ void __csi_after_alloca(const csi_id_t alloca_id, const void *addr,
   CilkSanImpl.advance_stack_frame((uintptr_t)addr);
 }
 
-static std::unordered_map<uintptr_t, size_t> malloc_sizes;
+// Map from malloc'd address to size of memory allocation
+static AddrMap_t<size_t> malloc_sizes;
 
 CILKSAN_API
 void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
@@ -773,8 +774,6 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
             "__csan_after_allocfn(%ld, %s, addr = %p, size = %ld, oldaddr = %p)\n",
             allocfn_id, __csan_get_allocfn_str(prop), addr, size, oldaddr);
 
-  // std::cerr << "Called memory function " << __csan_get_allocfn_str(prop) << "\n";
-
   // TODO: Use alignment information
   // Record the PC for this allocation-function call
   if (__builtin_expect(!allocfn_pc[allocfn_id], false))
@@ -788,30 +787,30 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
   // If this allocation function operated on an old address -- e.g., a realloc
   // -- then update the memory at the old address as if it was freed.
   if (oldaddr) {
-    auto iter = malloc_sizes.find((uintptr_t)oldaddr);
+    const size_t *size = malloc_sizes.get((uintptr_t)oldaddr);
     if (oldaddr != addr) {
       if (new_size > 0) {
         // Record the new allocation.
         CilkSanImpl.record_alloc((size_t)addr, new_size, 2 * allocfn_id + 1);
         CilkSanImpl.clear_shadow_memory((size_t)addr, new_size);
-        malloc_sizes.insert({(uintptr_t)addr, new_size});
+        malloc_sizes.insert((uintptr_t)addr, new_size);
       }
 
-      if (iter != malloc_sizes.end()) {
+      if (malloc_sizes.contains((uintptr_t)oldaddr)) {
         if (!parallel_execution.back()) {
-          CilkSanImpl.clear_alloc((size_t)oldaddr, iter->second);
-          CilkSanImpl.clear_shadow_memory((size_t)oldaddr, iter->second);
+          CilkSanImpl.clear_alloc((size_t)oldaddr, *size);
+          CilkSanImpl.clear_shadow_memory((size_t)oldaddr, *size);
         } else {
           // Take note of the freeing of the old memory.
-          CilkSanImpl.record_free((uintptr_t)oldaddr, iter->second, allocfn_id,
+          CilkSanImpl.record_free((uintptr_t)oldaddr, *size, allocfn_id,
                                   MAType_t::REALLOC);
         }
-        malloc_sizes.erase(iter);
+        malloc_sizes.remove((uintptr_t)oldaddr);
       }
     } else {
       // We're simply adjusting the allocation at the same place.
-      if (iter != malloc_sizes.end()) {
-        size_t old_size = iter->second;
+      if (malloc_sizes.contains((uintptr_t)oldaddr)) {
+        size_t old_size = *size;
         if (old_size < new_size) {
           CilkSanImpl.clear_shadow_memory((size_t)addr + old_size,
                                           new_size - old_size);
@@ -829,9 +828,9 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
           }
         }
         CilkSanImpl.record_alloc((size_t)addr, new_size, 2 * allocfn_id + 1);
-        malloc_sizes.erase(iter);
+        malloc_sizes.remove((uintptr_t)addr);
       }
-      malloc_sizes.insert({(uintptr_t)addr, new_size});
+      malloc_sizes.insert((uintptr_t)addr, new_size);
     }
     return;
   }
@@ -844,7 +843,7 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
     return;
 
   // Record the new allocation.
-  malloc_sizes.insert({(uintptr_t)addr, new_size});
+  malloc_sizes.insert((uintptr_t)addr, new_size);
   CilkSanImpl.record_alloc((size_t)addr, new_size, 2 * allocfn_id + 1);
   CilkSanImpl.clear_shadow_memory((size_t)addr, new_size);
 }
@@ -859,25 +858,21 @@ void __csan_after_free(const csi_id_t free_id, const void *ptr,
 
   CheckingRAII nocheck;
 
-  // std::cerr << "Called memory function " << __csan_get_free_str(prop) << "\n";
-
   if (__builtin_expect(!free_pc[free_id], false))
     free_pc[free_id] = CALLERPC;
 
-  auto iter = malloc_sizes.find((uintptr_t)ptr);
-  if (iter != malloc_sizes.end()) {
-    // cilksan_clear_shadow_memory((size_t)ptr, iter->second);
+  const size_t *size = malloc_sizes.get((uintptr_t)ptr);
+  if (malloc_sizes.contains((uintptr_t)ptr)) {
     if (!parallel_execution.back()) {
-      CilkSanImpl.clear_alloc((size_t)ptr, iter->second);
-      CilkSanImpl.clear_shadow_memory((size_t)ptr, iter->second);
+      CilkSanImpl.clear_alloc((size_t)ptr, *size);
+      CilkSanImpl.clear_shadow_memory((size_t)ptr, *size);
     } else {
       // Treat a free as a write to all freed addresses.  This way the tool will
       // report a race if an operation tries to access a location that was freed
       // in parallel.
-      CilkSanImpl.record_free((uintptr_t)ptr, iter->second, free_id,
-                              MAType_t::FREE);
+      CilkSanImpl.record_free((uintptr_t)ptr, *size, free_id, MAType_t::FREE);
     }
-    malloc_sizes.erase(iter);
+    malloc_sizes.remove((uintptr_t)ptr);
   }
 }
 
@@ -896,7 +891,7 @@ static std::map<uintptr_t, size_t> pages_to_clear;
 // documentation on better tricks.
 static int mem_initialized = 0;
 
-// Pointer to real memory functions.
+// Pointers to real memory functions.
 typedef void*(*malloc_t)(size_t);
 static malloc_t real_malloc = NULL;
 
@@ -1293,7 +1288,7 @@ __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
     }
   }
   void *ptr = dl_hyper_alloc(ignored, bytes);
-  malloc_sizes.insert({(uintptr_t)ptr, bytes});
+  malloc_sizes.insert((uintptr_t)ptr, bytes);
   CilkSanImpl.record_alloc((size_t)ptr, bytes, 0);
   CilkSanImpl.clear_shadow_memory((size_t)ptr, bytes);
   return ptr;
@@ -1308,7 +1303,7 @@ __real___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 CILKSAN_API
 void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
   void *ptr = __real___cilkrts_hyper_alloc(ignored, bytes);
-  malloc_sizes.insert({(uintptr_t)ptr, bytes});
+  malloc_sizes.insert((uintptr_t)ptr, bytes);
   CilkSanImpl.record_alloc((size_t)ptr, bytes, 0);
   CilkSanImpl.clear_shadow_memory((size_t)ptr, bytes);
   return ptr;
@@ -1330,11 +1325,11 @@ __cilkrts_hyper_dealloc(void *ignored, void *view) {
       abort();
     }
   }
-  auto iter = malloc_sizes.find((uintptr_t)view);
-  if (iter != malloc_sizes.end()) {
-    CilkSanImpl.clear_alloc((size_t)view, iter->second);
-    CilkSanImpl.clear_shadow_memory((size_t)view, iter->second);
-    malloc_sizes.erase(iter);
+  const size_t *size = malloc_sizes.get((uintptr_t)view);
+  if (malloc_sizes.contains((uintptr_t)view)) {
+    CilkSanImpl.clear_alloc((size_t)view, *size);
+    CilkSanImpl.clear_shadow_memory((size_t)view, *size);
+    malloc_sizes.remove((uintptr_t)view);
   }
   dl_hyper_dealloc(ignored, view);
 }
@@ -1347,11 +1342,11 @@ __real___cilkrts_hyper_dealloc(void *ignored, void *view) {
 
 CILKSAN_API
 void __wrap___cilkrts_hyper_dealloc(void *ignored, void *view) {
-  auto iter = malloc_sizes.find((uintptr_t)view);
-  if (iter != malloc_sizes.end()) {
-    CilkSanImpl.clear_alloc((size_t)view, iter->second);
-    CilkSanImpl.clear_shadow_memory((size_t)view, iter->second);
-    malloc_sizes.erase(iter);
+  const size_t *size = malloc_sizes.get((uintptr_t)view);
+  if (malloc_sizes.contains((uintptr_t)view)) {
+    CilkSanImpl.clear_alloc((size_t)view, *size);
+    CilkSanImpl.clear_shadow_memory((size_t)view, *size);
+    malloc_sizes.remove((uintptr_t)view);
   }
   __real___cilkrts_hyper_dealloc(ignored, view);
 }
