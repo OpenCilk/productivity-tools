@@ -167,6 +167,26 @@ public:
                       unsigned alignment);
   void do_locked_write(const csi_id_t store_id, uintptr_t addr, size_t len,
                        unsigned alignment);
+  void do_atomic_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+                      unsigned alignment, LockID_t atomic_lock_id) {
+    if (check_atomics) {
+      lockset.insert(atomic_lock_id);
+      do_locked_read(load_id, addr, len, alignment);
+      lockset.remove(atomic_lock_id);
+    } else {
+      do_read(load_id, addr, len, alignment);
+    }
+  }
+  void do_atomic_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+                       unsigned alignment, LockID_t atomic_lock_id) {
+    if (check_atomics) {
+      lockset.insert(atomic_lock_id);
+      do_locked_write(store_id, addr, len, alignment);
+      lockset.remove(atomic_lock_id);
+    } else {
+      do_write(store_id, addr, len, alignment);
+    }
+  }
 
   // defined in print_addr.cpp
   void report_race(
@@ -219,6 +239,10 @@ private:
 
   // Flag for whether the next loop iteration is the first iteration of a loop
   bool start_new_loop = false;
+
+  // Flag for whether to check whether a memory address that is accessed by an
+  // atomic operation is always accessed by atomic operations
+  bool check_atomics = false;
 
   // Set of locks held at the current instruction
   bool lockset_empty = true;
