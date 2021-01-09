@@ -19,6 +19,10 @@
 // global var: FILE io used to print error messages
 FILE *err_io;
 
+// defined in libopencilk
+extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
+extern "C" void __cilkrts_internal_set_force_reduce(unsigned int force_reduce);
+
 extern CilkSanImpl_t CilkSanImpl;
 
 // declared in cilksan.cpp
@@ -203,32 +207,12 @@ static void csan_destroy(void) {
 
 CilkSanImpl_t::~CilkSanImpl_t() {
   csan_destroy();
+  TOOL_INITIALIZED = false;
 }
 
 static void init_internal() {
-  if (ERROR_FILE) {
-    FILE *tmp = fopen(ERROR_FILE, "w+");
-    if (tmp) err_io = tmp;
-  }
-  if (err_io == NULL) err_io = stderr;
-
-  // Force the number of Cilk workers to be 1.
-  char *e = getenv("CILK_NWORKERS");
-  if (!e || 0 != strcmp(e, "1")) {
-    if (setenv("CILK_NWORKERS", "1", 1)) {
-      fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");
-      exit(1);
-    }
-  }
-
-  // Force reductions.
-  e = getenv("CILK_FORCE_REDUCE");
-  if (!e || 0 != strcmp(e, "1")) {
-    if (setenv("CILK_FORCE_REDUCE", "1", 1)) {
-      fprintf(err_io, "Error setting CILKS_FORCE_REDUCE to be 1\n");
-      exit(1);
-    }
-  }
+  __cilkrts_internal_set_nworkers(1);
+  __cilkrts_internal_set_force_reduce(1);
 }
 
 CILKSAN_API void __csan_init() {
