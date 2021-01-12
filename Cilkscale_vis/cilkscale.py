@@ -13,7 +13,7 @@ def main():
   ap.add_argument("--cpu-counts", "-cpus", help="comma-separated list of cpu counts to use for benchmarking")
   ap.add_argument("--output-csv", "-ocsv", help="csv file for output data", default="out.csv")
   ap.add_argument("--output-plot", "-oplot", help="plot file dest", default="plot.pdf")
-  ap.add_argument("--rows-to-plot", "-rplot", help="comma-separated list of rows to generate plots for (i.e. 1,2,3)", default="0")
+  ap.add_argument("--rows-to-plot", "-rplot", help="comma-separated list of rows to generate plots for (i.e. 0,1,2); or `all` to plot all rows", default="all")
   ap.add_argument("--args", "-a", nargs="*", help="binary arguments", default="")
 
   args = ap.parse_args()
@@ -40,7 +40,9 @@ def main():
     # generate plot
     # (out_plot defaults to plot.pdf)
     # (rows defaults to just the last row in the csv)
-    rows_to_plot = list(map(int, args.rows_to_plot.split(",")))
+    rows_to_plot = args.rows_to_plot
+    if rows_to_plot != "all":
+      rows_to_plot = list(map(int, rows_to_plot.split(",")))
     plot(out_csv, out_plot, rows_to_plot, cpus)
 
 if __name__ == '__main__':
