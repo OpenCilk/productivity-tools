@@ -19,11 +19,15 @@ def bound_runtime(T1, PAR, P):
   return Tp
 
 def sanitize_rows_to_plot(out_csv, rows_to_plot):
-  # if any row numbers are invalid, set them to the last row by default
+  # if any row numbers are invalid, set them to the last row by default;
+  # "all" is a special case for plotting all rows in the CSV
   num_rows = 0
   with open(out_csv, "r") as out_csv_file:
     rows = csv.reader(out_csv_file, delimiter=",")
     num_rows = len(list(rows))
+
+    if rows_to_plot == "all":
+      return set(range(1, num_rows))
 
     new_rows_to_plot = set()
     for r in rows_to_plot:
