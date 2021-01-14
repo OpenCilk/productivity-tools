@@ -92,6 +92,9 @@ const char *allocfn_str[] =
    "void *operator new[](unsigned int, nothrow)",
    "void *operator new[](unsigned long long)",
    "void *operator new[](unsigned long long, nothrow)",
+   "int posix_memalign(void **memptr, size_t alignment, size_t size)",
+   "char *strdup(const char *str)",
+   "char *strndup(const char *str, size_t size)"
   };
 
 const char *free_str[] =

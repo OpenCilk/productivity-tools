@@ -9,38 +9,75 @@
 // Forward declaration
 class SBag_t;
 
-// The context in which the access is made; user = user code, update = update
-// methods for a reducer object; reduce = reduce method for a reducer object
-enum AccContextType_t { USER = 1, UPDATE = 2, REDUCE = 3 };
 // Type of determinacy race.  W stands for write, R stands for read
 enum RaceType_t { RW_RACE = 1, WW_RACE = 2, WR_RACE = 3 };
 // Type of memory access: a read/write, an allocation, a free, or a realloc
-enum MAType_t : uint8_t { RW = 0, ALLOC, FREE, REALLOC, UNKNOWN = 255 };
+enum MAType_t : uint8_t {
+  RW = 0,
+  FNRW,
+  ALLOC,
+  FREE,
+  REALLOC,
+  STACK_FREE,
+  UNKNOWN = 255
+};
 
-// Type of frame on the call stack: a function call, a spawn, or a loop.
-enum CallType_t : uint8_t { CALL, SPAWN, LOOP };
-// Class representing the ID of a frame on the call stack.
-class CallID_t {
-  // We assume that the top 16 bits of a CSI ID, after the sign bit, are unused.
+template <typename TYPE_T> struct typed_id_t {
+  static_assert(sizeof(TYPE_T) < 16, "Invalid type for typed ID");
+  // We assume that the top 15 bits of a CSI ID, after the sign bit, are unused.
   // Since CSI ID's identify instructions in the program, this assumption bounds
   // the number of CSI ID's based on the size of virtual memory.
   static constexpr unsigned TYPE_SHIFT = 48;
   static constexpr csi_id_t ID_MASK = ((1UL << TYPE_SHIFT) - 1);
-  static constexpr csi_id_t UNKNOWN_CSI_CALL_ID = UNKNOWN_CSI_ID & ID_MASK;
+  static constexpr csi_id_t UNKNOWN_TYPED_ID = UNKNOWN_CSI_ID & ID_MASK;
 
-  // The ID of a frame on the call stack is encoded as a CSI ID and a type.
-  // This information is packed into a single 64-bit value.
   csi_id_t typed_id;
 
+  typed_id_t(TYPE_T type, csi_id_t id)
+      : typed_id((static_cast<csi_id_t>(type) << TYPE_SHIFT) | id) {}
+
+  __attribute__((always_inline)) csi_id_t get() const { return typed_id; }
+  __attribute__((always_inline)) TYPE_T getType() const {
+    return static_cast<TYPE_T>(typed_id >> TYPE_SHIFT);
+  }
+  __attribute__((always_inline)) csi_id_t getID() const {
+    return typed_id & ID_MASK;
+  }
+  __attribute__((always_inline)) bool isUnknownID() const {
+    return UNKNOWN_TYPED_ID == getID();
+  }
+  __attribute__((always_inline)) void setUnknown() {
+    typed_id = UNKNOWN_TYPED_ID;
+  }
+
+  bool operator==(typed_id_t that) const {
+    return typed_id == that.typed_id;
+  }
+  bool operator!=(typed_id_t that) const {
+    return !(*this == that);
+  }
+  bool operator<(typed_id_t that) const {
+    return typed_id < that.typed_id;
+  }
+  inline friend std::ostream &operator<<(std::ostream &os, typed_id_t id) {
+    os << "(" << id.getType() << ", " << id.getID() << ")";
+    return os;
+  }
+};
+
+// Type of frame on the call stack: a function call, a spawn, or a loop.
+enum CallType_t : uint8_t {
+  CALL,
+  SPAWN,
+  LOOP
+};
+// Class representing the ID of a frame on the call stack.
+class CallID_t {
+  typed_id_t<CallType_t> typed_id;
 public:
   // Default constructor
-  CallID_t()
-      : typed_id((static_cast<csi_id_t>(CALL) << TYPE_SHIFT) |
-                 UNKNOWN_CSI_CALL_ID) {}
-  // Constructor
-  CallID_t(CallType_t type, csi_id_t id)
-      : typed_id((static_cast<csi_id_t>(type) << TYPE_SHIFT) | (id & ID_MASK)) {
-  }
+  CallID_t() : typed_id(CALL, typed_id_t<CallType_t>::UNKNOWN_TYPED_ID) {}
+  CallID_t(CallType_t type, csi_id_t id) : typed_id(type, id) {}
   // Copy constructor
   CallID_t(const CallID_t &copy) : typed_id(copy.typed_id) {}
 
@@ -52,17 +89,17 @@ public:
 
   // Get the type of this call-stack frame
   inline CallType_t getType() const {
-    return static_cast<CallType_t>(typed_id >> TYPE_SHIFT);
+    return typed_id.getType();
   }
 
   // Get the CSI ID of this call-stack frame
   inline csi_id_t getID() const {
-    return (typed_id & ID_MASK);
+    return typed_id.getID();
   }
 
   // Returns true if this frame has an unknown ID.
   inline bool isUnknownID() const {
-    return getID() == UNKNOWN_CSI_CALL_ID;
+    return typed_id.isUnknownID();
   }
 
   // Operators for testing equality
@@ -74,8 +111,7 @@ public:
   }
 
   // Helper method for printing to an output stream
-  inline friend
-  std::ostream& operator<<(std::ostream &os, const CallID_t &id) {
+  inline friend std::ostream &operator<<(std::ostream &os, const CallID_t &id) {
     switch (id.getType()) {
     case CALL:
       os << "CALL " << id.getID();
@@ -396,8 +432,8 @@ public:
   }
 
   // Output-stream operator
-  inline friend
-  std::ostream& operator<<(std::ostream &os, const AccessLoc_t &loc) {
+  inline friend std::ostream &operator<<(std::ostream &os,
+                                         const AccessLoc_t &loc) {
     os << loc.acc_loc;
     // call_stack_node_t *node = loc.call_stack.tail;
     const call_stack_node_t *node = loc.getCallStack();
@@ -458,8 +494,8 @@ class RaceInfo_t {
   // const AccessLoc_t first_inst;  // instruction addr of the first access
   // const AccessLoc_t second_inst; // instruction addr of the second access
   // const AccessLoc_t alloc_inst;  // instruction addr of memory allocation
-  csi_id_t first_id;
-  csi_id_t second_id;
+  typed_id_t<MAType_t> first_acc;
+  typed_id_t<MAType_t> second_acc;
   csi_id_t alloc_id;
   uintptr_t addr;       // addr of memory location that got raced on
   enum RaceType_t type; // type of race
@@ -467,10 +503,11 @@ class RaceInfo_t {
 public:
   RaceInfo_t(const AccessLoc_t &_first, const AccessLoc_t &_second,
              const AccessLoc_t &_alloc, uintptr_t _addr, enum RaceType_t _type)
-      : first_id(_first.getID()), second_id(_second.getID()),
+      : first_acc(_first.getType(), _first.getID()),
+        second_acc(_second.getType(), _second.getID()),
         alloc_id(_alloc.getID()), addr(_addr), type(_type) {}
 
-  ~RaceInfo_t() {}
+  ~RaceInfo_t() = default;
 
   bool is_equivalent_race(const RaceInfo_t& other) const {
     /*
@@ -484,8 +521,8 @@ public:
     // Angelina: It turns out that Cilkscreen does not care about the race
     // types.  As long as the access instructions are the same, it's considered
     // as a duplicate.
-    if (((first_id == other.first_id && second_id == other.second_id) ||
-         (first_id == other.second_id && second_id == other.first_id)) &&
+    if (((first_acc == other.first_acc && second_acc == other.second_acc) ||
+         (first_acc == other.second_acc && second_acc == other.first_acc)) &&
         alloc_id == other.alloc_id) {
       return true;
     }

@@ -13,29 +13,6 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 
-// void print_race_report();
-
-// A map keeping track of races found, keyed by the larger instruction address
-// involved in the race.  Races that have same instructions that made the same
-// types of accesses are considered as the the same race (even for races where
-// one is read followed by write and the other is write followed by read, they
-// are still considered as the same race).  Races that have the same instruction
-// addresses but different address for memory location is considered as a
-// duplicate.  The value of the map stores the number duplicates for the given
-// race.
-// class RaceMap_t : public std::unordered_multimap<uint64_t, RaceInfo_t> {
-// public:
-//   RaceMap_t() {}
-//   ~RaceMap_t() {
-//     print_race_report();
-//   }
-
-// };
-// typedef std::unordered_multimap<uint64_t, RaceInfo_t> RaceMap_t;
-// static RaceMap_t races_found;
-// // The number of duplicated races found
-// static uint32_t duplicated_races = 0;
-
 // Mappings from CSI ID to associated program counter.
 uintptr_t *call_pc = nullptr;
 uintptr_t *spawn_pc = nullptr;
@@ -50,8 +27,11 @@ uintptr_t *free_pc = nullptr;
 typedef enum {
   LOAD_ACC,
   STORE_ACC,
+  CALL_LOAD_ACC,
+  CALL_STORE_ACC,
   FREE_ACC,
   REALLOC_ACC,
+  STACK_FREE_ACC,
 } ACC_TYPE;
 
 // Helper function to get string describing a variable location from a
@@ -98,7 +78,7 @@ get_src_info_str(const csan_source_loc_t *src_loc, const Decorator &d) {
   std::string file(src_loc->filename ?
                    (std::string(d.Filename()) + src_loc->filename +
                     std::string(d.Default())) :
-                   "<no filename>");
+                   "<no file name>");
   std::string funcname(src_loc->name ?
                        (std::string(d.Function()) + src_loc->name +
                         std::string(d.Default())) :
@@ -167,12 +147,15 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
   convert << d.Bold() << d.RaceLoc();
   switch (type) {
   case LOAD_ACC:
+  case CALL_LOAD_ACC:
     convert << "   Read ";
     break;
   case STORE_ACC:
+  case CALL_STORE_ACC:
     convert << "  Write ";
     break;
   case FREE_ACC:
+  case STACK_FREE_ACC:
     convert << "   Free ";
     break;
   case REALLOC_ACC:
@@ -191,11 +174,20 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
     case STORE_ACC:
       convert << std::hex << store_pc[acc_id];
       break;
+    case CALL_LOAD_ACC:
+      convert << std::hex << call_pc[acc_id];
+      break;
+    case CALL_STORE_ACC:
+      convert << std::hex << call_pc[acc_id];
+      break;
     case FREE_ACC:
       convert << std::hex << free_pc[acc_id];
       break;
     case REALLOC_ACC:
       convert << std::hex << allocfn_pc[acc_id];
+      break;
+    case STACK_FREE_ACC:
+      convert << std::hex << call_pc[acc_id];
       break;
     }
     convert << d.Default();
@@ -211,22 +203,23 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
     case STORE_ACC:
       src_loc = __csan_get_store_source_loc(acc_id);
       break;
+    case CALL_LOAD_ACC:
+      src_loc = __csan_get_call_source_loc(acc_id);
+      break;
+    case CALL_STORE_ACC:
+      src_loc = __csan_get_call_source_loc(acc_id);
+      break;
     case FREE_ACC:
       src_loc = __csan_get_free_source_loc(acc_id);
       break;
     case REALLOC_ACC:
       src_loc = __csan_get_allocfn_source_loc(acc_id);
       break;
+    case STACK_FREE_ACC:
+      src_loc = __csan_get_call_source_loc(acc_id);
+      break;
     }
   }
-  // if (!src_loc)
-  //   std::cerr << " is null\n";
-  // else if (!src_loc->filename)
-  //   std::cerr << " has null filename\n";
-  // else if (!src_loc->name)
-  //   std::cerr << " has null function name\n";
-  // else
-  //   std::cerr << " is valid\n";
 
   convert << get_src_info_str(src_loc, d);
 
@@ -326,8 +319,6 @@ int get_call_stack_divergence_pt(
   return i;
 }
 
-// extern void print_current_function_info();
-
 static std::unique_ptr<std::pair<CallID_t, uintptr_t>[]>
 get_call_stack(const AccessLoc_t &instrAddr) {
   int stack_size = instrAddr.getCallStackSize();
@@ -376,13 +367,26 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
   ACC_TYPE first_acc_type, second_acc_type;
   switch(type) {
   case RW_RACE:
-    first_acc_type = LOAD_ACC;
+    switch(first_inst.getType()) {
+    case MAType_t::FNRW:
+      first_acc_type = CALL_LOAD_ACC;
+      break;
+    default:
+      first_acc_type = LOAD_ACC;
+      break;
+    }
     switch (second_inst.getType()) {
+    case MAType_t::FNRW:
+      second_acc_type = CALL_STORE_ACC;
+      break;
     case MAType_t::FREE:
       second_acc_type = FREE_ACC;
       break;
     case MAType_t::REALLOC:
       second_acc_type = REALLOC_ACC;
+      break;
+    case MAType_t::STACK_FREE:
+      second_acc_type = STACK_FREE_ACC;
       break;
     default:
       second_acc_type = STORE_ACC;
@@ -391,22 +395,34 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     break;
   case WW_RACE:
     switch (first_inst.getType()) {
+    case MAType_t::FNRW:
+      first_acc_type = CALL_STORE_ACC;
+      break;
     case MAType_t::FREE:
       first_acc_type = FREE_ACC;
       break;
     case MAType_t::REALLOC:
       first_acc_type = REALLOC_ACC;
       break;
+    case MAType_t::STACK_FREE:
+      first_acc_type = STACK_FREE_ACC;
+      break;
     default:
       first_acc_type = STORE_ACC;
       break;
     }
     switch (second_inst.getType()) {
+    case MAType_t::FNRW:
+      second_acc_type = CALL_STORE_ACC;
+      break;
     case MAType_t::FREE:
       second_acc_type = FREE_ACC;
       break;
     case MAType_t::REALLOC:
       second_acc_type = REALLOC_ACC;
+      break;
+    case MAType_t::STACK_FREE:
+      second_acc_type = STACK_FREE_ACC;
       break;
     default:
       second_acc_type = STORE_ACC;
@@ -415,17 +431,30 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     break;
   case WR_RACE:
     switch (first_inst.getType()) {
+    case MAType_t::FNRW:
+      first_acc_type = CALL_STORE_ACC;
+      break;
     case MAType_t::FREE:
       first_acc_type = FREE_ACC;
       break;
     case MAType_t::REALLOC:
       first_acc_type = REALLOC_ACC;
       break;
+    case MAType_t::STACK_FREE:
+      first_acc_type = STACK_FREE_ACC;
+      break;
     default:
       first_acc_type = STORE_ACC;
       break;
     }
-    second_acc_type = LOAD_ACC;
+    switch (second_inst.getType()) {
+    case MAType_t::FNRW:
+      second_acc_type = CALL_LOAD_ACC;
+      break;
+    default:
+      second_acc_type = LOAD_ACC;
+      break;
+    }
     break;
   }
   first_acc_info =
@@ -481,8 +510,6 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
   }
 
   std::cerr << "\n";
-
-  // print_current_function_info();
 }
 
 // Log the race detected

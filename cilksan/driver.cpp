@@ -4,20 +4,16 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <map>
-#include <pthread.h>
 #include <sys/mman.h>
-#include <unistd.h>
-#include <unordered_map>
 
+#include "checking.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
+#include "driver.h"
 #include "stack.h"
 #include "addrmap.h"
 
-#define CILKSAN_API extern "C" __attribute__((visibility("default")))
-#define CALLERPC ((uintptr_t)__builtin_return_address(0))
-
-// global var: FILE io used to print error messages
+// FILE io used to print error messages
 FILE *err_io;
 
 // defined in libopencilk
@@ -30,21 +26,14 @@ extern CilkSanImpl_t CilkSanImpl;
 extern uintptr_t stack_low_addr;
 extern uintptr_t stack_high_addr;
 
+// Estimate on the value of the stack size, used to detect stack-switching.
+static constexpr size_t DEFAULT_STACK_SIZE = 1UL << 21;
+
 // declared in cilksan; for debugging only
 #if CILKSAN_DEBUG
 extern enum EventType_t last_event;
 #endif
 
-// Defined in print_addr.cpp
-extern uintptr_t *call_pc;
-extern uintptr_t *spawn_pc;
-extern uintptr_t *loop_pc;
-extern uintptr_t *load_pc;
-extern uintptr_t *store_pc;
-extern uintptr_t *alloca_pc;
-extern uintptr_t *allocfn_pc;
-extern allocfn_prop_t *allocfn_prop;
-extern uintptr_t *free_pc;
 static csi_id_t total_call = 0;
 static csi_id_t total_spawn = 0;
 static csi_id_t total_loop = 0;
@@ -54,18 +43,38 @@ static csi_id_t total_alloca = 0;
 static csi_id_t total_allocfn = 0;
 static csi_id_t total_free = 0;
 
-// Running counter to track the next available lock ID.  We reserve lock_id == 0
-// for atomic operations.
-static LockID_t atomic_lock_id = 0;
-static LockID_t next_lock_id = atomic_lock_id + 1;
-static AddrMap_t<LockID_t> lock_ids;
+// We reserve lock_id == 0 for atomic operations.
+const LockID_t atomic_lock_id = 0;
 
-static bool TOOL_INITIALIZED = false;
+// Flag to track whether Cilksan is initialized.
+bool TOOL_INITIALIZED = false;
 
-// When either is set to false, no errors are output
-static bool instrumentation = false;
-// needs to be reentrant due to reducer operations; 0 means checking
-static int checking_disabled = 0;
+// Flag to globally enable/disable instrumentation.
+bool instrumentation = false;
+
+// Reentrant flag for enabling/disabling instrumentation; 0 enables checking.
+int checking_disabled = 0;
+
+// Stack structure for tracking whether the current execution is parallel, i.e.,
+// whether there are any unsynced spawns in the program execution.
+Stack_t<uint8_t> parallel_execution;
+Stack_t<bool> spbags_frame_skipped;
+
+// Storage for old values of stack_low_addr and stack_high_addr, saved when
+// entering a cilkified region.
+uintptr_t uncilkified_stack_low_addr = (uintptr_t)-1;
+uintptr_t uncilkified_stack_high_addr = 0;
+
+// Stack for tracking whether a stack switch has occurred.
+Stack_t<uint8_t> switched_stack;
+
+// Stack structures for keeping track of MAAPs for pointer arguments to function
+// calls.
+Stack_t<std::pair<csi_id_t, MAAP_t>> MAAPs;
+Stack_t<unsigned> MAAP_counts;
+
+///////////////////////////////////////////////////////////////////////////
+// Methods for enabling and disabling instrumentation
 
 static inline void enable_instrumentation() {
   DBG_TRACE(DEBUG_BASIC, "Enable instrumentation.\n");
@@ -76,28 +85,6 @@ static inline void disable_instrumentation() {
   DBG_TRACE(DEBUG_BASIC, "Disable instrumentation.\n");
   instrumentation = false;
 }
-
-static inline void enable_checking() {
-  checking_disabled--;
-  DBG_TRACE(DEBUG_BASIC, "%d: Enable checking.\n", checking_disabled);
-  cilksan_assert(checking_disabled >= 0);
-}
-
-static inline void disable_checking() {
-  cilksan_assert(checking_disabled >= 0);
-  checking_disabled++;
-  DBG_TRACE(DEBUG_BASIC, "%d: Disable checking.\n", checking_disabled);
-}
-
-// RAII object to disable checking in tool routines.
-struct CheckingRAII {
-  CheckingRAII() {
-    disable_checking();
-  }
-  ~CheckingRAII() {
-    enable_checking();
-  }
-};
 
 // outside world (including runtime).
 // Non-inlined version for user code to use
@@ -119,31 +106,23 @@ CILKSAN_API bool __cilksan_is_checking_enabled(void) {
   return (checking_disabled == 0);
 }
 
-static inline bool should_check() {
-  return (instrumentation && (checking_disabled == 0));
-}
+///////////////////////////////////////////////////////////////////////////
+// Hooks for setting and getting MAAPs.
 
-// Stack structure for tracking whether the current execution is parallel, i.e.,
-// whether there are any unsynced spawns in the program execution.
-Stack_t<uint8_t> parallel_execution;
-Stack_t<bool> spbags_frame_skipped;
+CILKSAN_API void __csan_set_MAAP(MAAP_t val, csi_id_t id) {
+  if (!should_check())
+    return;
 
-// Stack structures for keeping track of MAAP (May Access Alias in Parallel)
-// information inserted by the compiler before a call.
-Stack_t<std::pair<csi_id_t, uint64_t>> MAAPs;
-Stack_t<unsigned> MAAP_counts;
-
-CILKSAN_API void __csan_set_MAAP(uint64_t val, csi_id_t id) {
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_set_MAAP(%ld, %ld)\n", val, id);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_set_MAAP(%d, %ld)\n", val, id);
   MAAPs.push_back(std::make_pair(id, val));
 }
 
-CILKSAN_API void __csan_get_MAAP(uint64_t *ptr, csi_id_t id, unsigned idx) {
+CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
   DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%x, %d, %d)\n", ptr, id, idx);
   // We presume that __csan_get_MAAP runs early in the function, so if
   // instrumentation is disabled, it's disabled for the whole function.
   if (!should_check()) {
-    *ptr = /*NoModRef*/ 0;
+    *ptr = MAAP_t::NoAccess;
     return;
   }
 
@@ -153,20 +132,23 @@ CILKSAN_API void __csan_get_MAAP(uint64_t *ptr, csi_id_t id, unsigned idx) {
               MAAP_count);
     // The stack doesn't have MAAPs for us, so assume the worst: modref with
     // aliasing.
-    *ptr = /*ModRef*/ 3;
+    *ptr = MAAP_t::ModRef;
     return;
   }
 
-  std::pair<csi_id_t, unsigned> MAAP = *MAAPs.ancestor(idx);
+  std::pair<csi_id_t, MAAP_t> MAAP = *MAAPs.ancestor(idx);
   if (MAAP.first == id) {
     DBG_TRACE(DEBUG_CALLBACK, "  Found MAAP: %d\n", MAAP.second);
     *ptr = MAAP.second;
   } else {
     DBG_TRACE(DEBUG_CALLBACK, "  No MAAP found\n");
     // The stack doesn't have MAAPs for us, so assume the worst.
-    *ptr = /*ModRef*/ 3;
+    *ptr = MAAP_t::ModRef;
   }
 }
+
+///////////////////////////////////////////////////////////////////////////
+// Tool initialization and deinitialization
 
 // called upon process exit
 static void csan_destroy(void) {
@@ -246,7 +228,6 @@ static void grow_pc_table(uintptr_t *&table, csi_id_t &table_cap,
 CILKSAN_API
 void __csan_unit_init(const char *const file_name,
                       const csan_instrumentation_counts_t counts) {
-  CheckingRAII nocheck;
   // Grow the tables mapping CSI ID's to PC values.
   if (counts.num_call)
     grow_pc_table(call_pc, total_call, counts.num_call);
@@ -272,33 +253,57 @@ void __csan_unit_init(const char *const file_name,
     grow_pc_table(free_pc, total_free, counts.num_free);
 }
 
-// invoked whenever a function enters; no need for this
+///////////////////////////////////////////////////////////////////////////
+// Standard instrumentation hooks for control flow: function entry and exit,
+// spawning and syncing of tasks, etc.
+
+static inline void handle_stack_switch(uintptr_t bp, uintptr_t sp) {
+  uncilkified_stack_high_addr = stack_high_addr;
+  uncilkified_stack_low_addr = stack_low_addr;
+
+  // The base pointer may still be on the old stack, in which case we use sp to
+  // set both stack_high_addr and stack_low_addr.
+  if (bp - sp > DEFAULT_STACK_SIZE)
+    stack_high_addr = sp;
+  else
+    stack_high_addr = bp;
+  stack_low_addr = sp;
+}
+
+// Hook called upon entering a function.
 CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
                                    const void *bp, const void *sp,
                                    const func_prop_t prop) {
   { // Handle tool initialization as a special case.
-    CheckingRAII nocheck_init;
     static bool first_call = true;
     if (first_call) {
+      first_call = false;
       CilkSanImpl.init();
       enable_instrumentation();
       // Note that we start executing the program in series.
       parallel_execution.push_back(0);
-      first_call = false;
     }
   }
-
-  // fprintf(stderr, "__csan_func_entry: bp = %p, sp = %p\n",
-  //         (uintptr_t)bp, (uintptr_t)sp);
-  if (stack_high_addr < (uintptr_t)bp)
-    stack_high_addr = (uintptr_t)bp;
-  if (stack_low_addr > (uintptr_t)sp)
-    stack_low_addr = (uintptr_t)sp;
 
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
+  if (((uintptr_t)bp - (uintptr_t)sp > DEFAULT_STACK_SIZE) ||
+      (stack_low_addr > (uintptr_t)sp &&
+       stack_low_addr - (uintptr_t)sp > DEFAULT_STACK_SIZE)) {
+    // It looks like we have switched stacks to start executing Cilk code.
+    handle_stack_switch((uintptr_t)bp, (uintptr_t)sp);
+    switched_stack.push_back(1);
+    if ((uintptr_t)bp - (uintptr_t)sp > DEFAULT_STACK_SIZE)
+      bp = sp;
+  } else {
+    if (stack_high_addr < (uintptr_t)bp)
+      stack_high_addr = (uintptr_t)bp;
+    if (stack_low_addr > (uintptr_t)sp)
+      stack_low_addr = (uintptr_t)sp;
+    switched_stack.push_back(0);
+  }
+
   WHEN_CILKSAN_DEBUG({
       const csan_source_loc_t *srcloc = __csan_get_func_source_loc(func_id);
       DBG_TRACE(DEBUG_CALLBACK, "__csan_func_entry(%d) at %s (%s:%d)\n",
@@ -327,18 +332,17 @@ CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
   spbags_frame_skipped.push_back(false);
 
   // Update the tool for entering a Cilk function.
-  CilkSanImpl.do_enter_begin(prop.num_sync_reg);
-  CilkSanImpl.do_enter_end((uintptr_t)sp);
+  CilkSanImpl.do_enter(prop.num_sync_reg);
   enable_instrumentation();
 }
 
+// Hook called when exiting a function.
 CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
                                   const csi_id_t func_id,
                                   const func_exit_prop_t prop) {
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
   cilksan_assert(TOOL_INITIALIZED);
 #if CILKSAN_DEBUG
   const csan_source_loc_t *srcloc = __csan_get_func_exit_source_loc(func_exit_id);
@@ -354,8 +358,7 @@ CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
     // NOTE: Technically the sync region that would synchronize any orphaned
     // child tasks is not well defined.  This case should never arise in Cilk
     // programs.
-    CilkSanImpl.do_leave_begin(0);
-    CilkSanImpl.do_leave_end();
+    CilkSanImpl.do_leave(0);
   }
   spbags_frame_skipped.pop();
 
@@ -364,18 +367,25 @@ CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
   parallel_execution.pop();
 
   CilkSanImpl.pop_stack_frame();
+
+  if (switched_stack.back()) {
+    // We switched stacks upon entering this function.  Now switch back.
+    stack_high_addr = uncilkified_stack_high_addr;
+    stack_low_addr = uncilkified_stack_low_addr;
+  }
+  switched_stack.pop();
 }
 
+// Hook called just before executing a loop.
 CILKSAN_API void __csan_before_loop(const csi_id_t loop_id,
                                     const int64_t trip_count,
                                     const loop_prop_t prop) {
-  if (!should_check())
-    return;
-
   if (!prop.is_tapir_loop)
     return;
 
-  CheckingRAII nocheck;
+  if (!should_check())
+    return;
+
   DBG_TRACE(DEBUG_CALLBACK, "__csan_before_loop(%ld)\n", loop_id);
 
   // Record the address of this parallel loop.
@@ -395,16 +405,16 @@ CILKSAN_API void __csan_before_loop(const csi_id_t loop_id,
   CilkSanImpl.do_loop_begin();
 }
 
+// Hook called just after executing a loop.
 CILKSAN_API void __csan_after_loop(const csi_id_t loop_id,
                                    const unsigned sync_reg,
                                    const loop_prop_t prop) {
-  if (!should_check())
-    return;
-
   if (!prop.is_tapir_loop)
     return;
 
-  CheckingRAII nocheck;
+  if (!should_check())
+    return;
+
   DBG_TRACE(DEBUG_CALLBACK, "__csan_after_loop(%ld)\n", loop_id);
 
   CilkSanImpl.do_loop_end(sync_reg);
@@ -417,16 +427,14 @@ CILKSAN_API void __csan_after_loop(const csi_id_t loop_id,
   CilkSanImpl.record_call_return(loop_id, LOOP);
 }
 
+// Hook called before a function-call instruction.
 CILKSAN_API void __csan_before_call(const csi_id_t call_id,
-                                    const csi_id_t func_id,
-                                    unsigned MAAP_count,
+                                    const csi_id_t func_id, unsigned MAAP_count,
                                     const call_prop_t prop) {
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_before_call(%ld, %ld)\n",
-            call_id, func_id);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_before_call(%ld, %ld)\n", call_id, func_id);
 
   // Record the address of this call site.
   if (__builtin_expect(!call_pc[call_id], false))
@@ -441,6 +449,7 @@ CILKSAN_API void __csan_before_call(const csi_id_t call_id,
   CilkSanImpl.record_call(call_id, CALL);
 }
 
+// Hook called upon returning from a function call.
 CILKSAN_API void __csan_after_call(const csi_id_t call_id,
                                    const csi_id_t func_id,
                                    unsigned MAAP_count,
@@ -448,7 +457,6 @@ CILKSAN_API void __csan_after_call(const csi_id_t call_id,
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
   DBG_TRACE(DEBUG_CALLBACK, "__csan_after_call(%ld, %ld)\n",
             call_id, func_id);
 
@@ -463,16 +471,15 @@ CILKSAN_API void __csan_after_call(const csi_id_t call_id,
   CilkSanImpl.record_call_return(call_id, CALL);
 }
 
+// Hook called when spawning a new task.
 CILKSAN_API void __csan_detach(const csi_id_t detach_id,
                                const unsigned sync_reg) {
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
   DBG_TRACE(DEBUG_CALLBACK, "__csan_detach(%ld)\n",
             detach_id);
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
-  WHEN_CILKSAN_DEBUG(last_event = SPAWN_PREPARE);
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 
   // Record the address of this detach.
@@ -488,19 +495,29 @@ CILKSAN_API void __csan_detach(const csi_id_t detach_id,
     CilkSanImpl.record_call(detach_id, SPAWN);
 }
 
+// Hook called upon entering the body of a task.
 CILKSAN_API void __csan_task(const csi_id_t task_id, const csi_id_t detach_id,
                              const void *bp, const void *sp,
                              const task_prop_t prop) {
   if (!should_check())
     return;
-  // fprintf(stderr, "__csan_task: bp = %p, sp = %p\n",
-  //         (uintptr_t)bp, (uintptr_t)sp);
 
   // Update the low address of the stack
-  if (stack_low_addr > (uintptr_t)sp)
-    stack_low_addr = (uintptr_t)sp;
+  if (stack_low_addr > (uintptr_t)sp) {
+    if (stack_low_addr - (uintptr_t)sp > DEFAULT_STACK_SIZE) {
+      // It looks like we have switched stacks to start executing Cilk code.
+      handle_stack_switch((uintptr_t)bp, (uintptr_t)sp);
+      switched_stack.push_back(1);
+      if ((uintptr_t)bp - (uintptr_t)sp > DEFAULT_STACK_SIZE)
+        bp = sp;
+    } else {
+      stack_low_addr = (uintptr_t)sp;
+      switched_stack.push_back(0);
+    }
+  } else {
+    switched_stack.push_back(0);
+  }
 
-  CheckingRAII nocheck;
   DBG_TRACE(DEBUG_CALLBACK, "__csan_task(%ld, %ld, %d)\n",
             task_id, detach_id, prop.is_tapir_loop_body);
   WHEN_CILKSAN_DEBUG(last_event = NONE);
@@ -508,7 +525,7 @@ CILKSAN_API void __csan_task(const csi_id_t task_id, const csi_id_t detach_id,
   CilkSanImpl.push_stack_frame((uintptr_t)bp, (uintptr_t)sp);
 
   if (prop.is_tapir_loop_body && CilkSanImpl.handle_loop()) {
-    CilkSanImpl.do_loop_iteration_begin((uintptr_t)sp, prop.num_sync_reg);
+    CilkSanImpl.do_loop_iteration_begin(prop.num_sync_reg);
     return;
   }
 
@@ -520,12 +537,11 @@ CILKSAN_API void __csan_task(const csi_id_t task_id, const csi_id_t detach_id,
   parallel_execution.push_back(current_pe);
 
   // Update tool for entering detach-helper function and performing detach.
-  CilkSanImpl.do_enter_helper_begin(prop.num_sync_reg);
-  CilkSanImpl.do_enter_end((uintptr_t)sp);
-  CilkSanImpl.do_detach_begin();
-  CilkSanImpl.do_detach_end();
+  CilkSanImpl.do_enter_helper(prop.num_sync_reg);
+  CilkSanImpl.do_detach();
 }
 
+// Hook called when exiting the body of a task.
 CILKSAN_API void __csan_task_exit(const csi_id_t task_exit_id,
                                   const csi_id_t task_id,
                                   const csi_id_t detach_id,
@@ -534,9 +550,9 @@ CILKSAN_API void __csan_task_exit(const csi_id_t task_exit_id,
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_task_exit(%ld, %ld, %ld, %d)\n",
-            task_exit_id, task_id, detach_id, prop.is_tapir_loop_body);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_task_exit(%ld, %ld, %ld, %d, %d)\n",
+            task_exit_id, task_id, detach_id, sync_reg,
+            prop.is_tapir_loop_body);
 
   if (prop.is_tapir_loop_body && CilkSanImpl.handle_loop()) {
     // Update tool for leaving the parallel iteration.
@@ -545,8 +561,7 @@ CILKSAN_API void __csan_task_exit(const csi_id_t task_exit_id,
     // The parallel-execution state will be popped when the loop terminates.
   } else {
     // Update tool for leaving a detach-helper function.
-    CilkSanImpl.do_leave_begin(sync_reg);
-    CilkSanImpl.do_leave_end();
+    CilkSanImpl.do_leave(sync_reg);
 
     // Pop the parallel-execution state.
     parallel_execution.pop();
@@ -554,36 +569,42 @@ CILKSAN_API void __csan_task_exit(const csi_id_t task_exit_id,
   }
 
   CilkSanImpl.pop_stack_frame();
+
+  if (switched_stack.back()) {
+    // We switched stacks upon entering this function.  Now switch back.
+    stack_high_addr = uncilkified_stack_high_addr;
+    stack_low_addr = uncilkified_stack_low_addr;
+  }
+  switched_stack.pop();
 }
 
+// Hook called at the continuation of a detach, i.e., a task spawn.
 CILKSAN_API void __csan_detach_continue(const csi_id_t detach_continue_id,
                                         const csi_id_t detach_id) {
   if (!should_check())
     return;
-  CheckingRAII nocheck;
+
   DBG_TRACE(DEBUG_CALLBACK, "__csan_detach_continue(%ld)\n",
             detach_id);
 
-  if (!CilkSanImpl.handle_loop())
+  if (!CilkSanImpl.handle_loop()) {
     CilkSanImpl.record_call_return(detach_id, SPAWN);
+    CilkSanImpl.do_detach_continue();
+  }
 
-  WHEN_CILKSAN_DEBUG({
-      if (last_event == LEAVE_FRAME_OR_HELPER)
-        CilkSanImpl.do_leave_end();
-    });
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 }
 
+// Hook called at a sync
 CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
   if (!should_check())
     return;
-  CheckingRAII nocheck;
+
   cilksan_assert(TOOL_INITIALIZED);
 
   // Because this is a serial tool, we can safely perform all operations related
   // to a sync.
-  CilkSanImpl.do_sync_begin();
-  CilkSanImpl.do_sync_end(sync_reg);
+  CilkSanImpl.do_sync(sync_reg);
 
   // Restore the parallel-execution state to that of the function/task entry.
   if (CilkSanImpl.is_local_synced()) {
@@ -591,10 +612,14 @@ CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
   }
 }
 
+///////////////////////////////////////////////////////////////////////////
+// Hooks for memory accesses, i.e., loads and stores
+//
 // In the user program, __csan_load/store are called right before the
 // corresponding read / write in the user code.  The return addr of
 // __csan_load/store is the rip for the read / write.
 
+// Hook called for an ordinary load instruction
 CILKSAN_API
 void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
                  load_prop_t prop) {
@@ -604,13 +629,12 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
               size);
     return;
   }
-  if (!parallel_execution.back()) {
+  if (!is_execution_parallel()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
 
-  CheckingRAII nocheck;
   // Record the address of this load.
   if (__builtin_expect(!load_pc[load_id], false))
     load_pc[load_id] = CALLERPC;
@@ -629,6 +653,7 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
     CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
+// Hook called for a "large" load instruction, e.g., due to a memory intrinsic.
 CILKSAN_API
 void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
                        load_prop_t prop) {
@@ -638,13 +663,12 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
               size);
     return;
   }
-  if (!parallel_execution.back()) {
+  if (!is_execution_parallel()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
 
-  CheckingRAII nocheck;
   // Record the address of this load.
   if (__builtin_expect(!load_pc[load_id], false))
     load_pc[load_id] = CALLERPC;
@@ -663,6 +687,7 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
 }
 
+// Hook called for an ordinary store instruction.
 CILKSAN_API
 void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
                   store_prop_t prop) {
@@ -672,13 +697,12 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
               size);
     return;
   }
-  if (!parallel_execution.back()) {
+  if (!is_execution_parallel()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
 
-  CheckingRAII nocheck;
   // Record the address of this store.
   if (__builtin_expect(!store_pc[store_id], false))
     store_pc[store_id] = CALLERPC;
@@ -698,6 +722,7 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
     CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
+// Hook called for a "large" store instruction, e.g., due to a memory intrinsic.
 CILKSAN_API
 void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
                         store_prop_t prop) {
@@ -707,13 +732,12 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
               size);
     return;
   }
-  if (!parallel_execution.back()) {
+  if (!is_execution_parallel()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
 
-  CheckingRAII nocheck;
   // Record the address of this store.
   if (__builtin_expect(!store_pc[store_id], false))
     store_pc[store_id] = CALLERPC;
@@ -733,6 +757,10 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
 }
 
+///////////////////////////////////////////////////////////////////////////
+// Hooks for memory allocation
+
+// Hook called after a stack allocation.
 CILKSAN_API
 void __csi_after_alloca(const csi_id_t alloca_id, const void *addr,
                         size_t size, const alloca_prop_t prop) {
@@ -743,7 +771,6 @@ void __csi_after_alloca(const csi_id_t alloca_id, const void *addr,
   if (stack_low_addr > (uintptr_t)addr)
     stack_low_addr = (uintptr_t)addr;
 
-  CheckingRAII nocheck;
   // Record the PC for this alloca
   if (__builtin_expect(!alloca_pc[alloca_id], false))
     alloca_pc[alloca_id] = CALLERPC;
@@ -767,8 +794,6 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check())
     return;
-
-  CheckingRAII nocheck;
 
   DBG_TRACE(DEBUG_CALLBACK,
             "__csan_after_allocfn(%ld, %s, addr = %p, size = %ld, oldaddr = %p)\n",
@@ -797,7 +822,7 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
       }
 
       if (malloc_sizes.contains((uintptr_t)oldaddr)) {
-        if (!parallel_execution.back()) {
+        if (!is_execution_parallel()) {
           CilkSanImpl.clear_alloc((size_t)oldaddr, *size);
           CilkSanImpl.clear_shadow_memory((size_t)oldaddr, *size);
         } else {
@@ -815,7 +840,7 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
           CilkSanImpl.clear_shadow_memory((size_t)addr + old_size,
                                           new_size - old_size);
         } else if (old_size > new_size) {
-          if (!parallel_execution.back()) {
+          if (!is_execution_parallel()) {
             CilkSanImpl.clear_alloc((size_t)oldaddr + new_size,
                                     old_size - new_size);
             CilkSanImpl.clear_shadow_memory((size_t)oldaddr + new_size,
@@ -848,7 +873,30 @@ void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
   CilkSanImpl.clear_shadow_memory((size_t)addr, new_size);
 }
 
-// __csan_after_free is called after any call to free or delete.
+CILKSAN_API void __csan_alloc_posix_memalign(const csi_id_t allocfn_id,
+                                             const csi_id_t func_id,
+                                             unsigned MAAP_count,
+                                             const allocfn_prop_t prop,
+                                             int result, void **ptr,
+                                             size_t alignment, size_t size) {
+  cilksan_assert(TOOL_INITIALIZED);
+  if (!should_check())
+    return;
+  if (__builtin_expect(!allocfn_pc[allocfn_id], false))
+    allocfn_pc[allocfn_id] = CALLERPC;
+  if (__builtin_expect(allocfn_prop[allocfn_id].allocfn_ty == uint8_t(-1),
+                       false))
+    allocfn_prop[allocfn_id] = prop;
+
+  if (0 == size)
+    return;
+
+  malloc_sizes.insert((uintptr_t)(*ptr), size);
+  CilkSanImpl.record_alloc((size_t)(*ptr), size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)(*ptr), size);
+}
+
+// Hook called after any free or delete.
 CILKSAN_API
 void __csan_after_free(const csi_id_t free_id, const void *ptr,
                        const free_prop_t prop) {
@@ -856,14 +904,12 @@ void __csan_after_free(const csi_id_t free_id, const void *ptr,
   if (!should_check())
     return;
 
-  CheckingRAII nocheck;
-
   if (__builtin_expect(!free_pc[free_id], false))
     free_pc[free_id] = CALLERPC;
 
   const size_t *size = malloc_sizes.get((uintptr_t)ptr);
   if (malloc_sizes.contains((uintptr_t)ptr)) {
-    if (!parallel_execution.back()) {
+    if (!is_execution_parallel()) {
       CilkSanImpl.clear_alloc((size_t)ptr, *size);
       CilkSanImpl.clear_shadow_memory((size_t)ptr, *size);
     } else {
@@ -1220,6 +1266,9 @@ void *mremap(void *start, size_t old_len, size_t len, int flags, ...) {
 
 #endif  // CILKSAN_DYNAMIC
 
+///////////////////////////////////////////////////////////////////////////
+// Function interposers for OpenCilk runtime routines
+
 /// Wrapping for __cilkrts_internal_merge_two_rmaps Cilk runtime method for
 /// performing reduce operations on reducer views.
 
@@ -1349,118 +1398,4 @@ void __wrap___cilkrts_hyper_dealloc(void *ignored, void *view) {
     malloc_sizes.remove((uintptr_t)view);
   }
   __real___cilkrts_hyper_dealloc(ignored, view);
-}
-
-// Interposers for Pthread locking routines
-extern "C" __cilkrts_worker *__cilkrts_get_tls_worker();
-
-typedef int (*pthread_mutex_init_t)(pthread_mutex_t *,
-                                    const pthread_mutexattr_t *);
-static pthread_mutex_init_t dl_pthread_mutex_init = NULL;
-
-typedef int (*pthread_mutex_destroy_t)(pthread_mutex_t *);
-static pthread_mutex_destroy_t dl_pthread_mutex_destroy = NULL;
-
-typedef int(*pthread_mutex_lockfn_t)(pthread_mutex_t *);
-static pthread_mutex_lockfn_t dl_pthread_mutex_lock = NULL;
-static pthread_mutex_lockfn_t dl_pthread_mutex_trylock = NULL;
-static pthread_mutex_lockfn_t dl_pthread_mutex_unlock = NULL;
-
-CILKSAN_API int pthread_mutex_init(pthread_mutex_t *mutex,
-                                   const pthread_mutexattr_t *attr) {
-  if (__builtin_expect(dl_pthread_mutex_init == NULL, false)) {
-    dl_pthread_mutex_init =
-        (pthread_mutex_init_t)dlsym(RTLD_NEXT, "pthread_mutex_init");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-
-  int result = dl_pthread_mutex_init(mutex, attr);
-  if (TOOL_INITIALIZED) {
-    lock_ids.insert((uintptr_t)mutex, next_lock_id++);
-  }
-  return result;
-}
-
-CILKSAN_API int pthread_mutex_destroy(pthread_mutex_t *mutex) {
-  if (__builtin_expect(dl_pthread_mutex_destroy == NULL, false)) {
-    dl_pthread_mutex_destroy =
-        (pthread_mutex_destroy_t)dlsym(RTLD_NEXT, "pthread_mutex_destroy");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-
-  int result = dl_pthread_mutex_destroy(mutex);
-  if (lock_ids.contains((uintptr_t)mutex)) {
-    lock_ids.remove((uintptr_t)mutex);
-  }
-  return result;
-}
-
-CILKSAN_API int pthread_mutex_lock(pthread_mutex_t *mutex) {
-  if (__builtin_expect(dl_pthread_mutex_lock == NULL, false)) {
-    dl_pthread_mutex_lock =
-        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_lock");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-
-  int result = dl_pthread_mutex_lock(mutex);
-  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
-      parallel_execution.back() && !result)
-    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
-      CilkSanImpl.do_acquire_lock((LockID_t)*lock_id);
-  return result;
-}
-
-CILKSAN_API int pthread_mutex_trylock(pthread_mutex_t *mutex) {
-  if (__builtin_expect(dl_pthread_mutex_trylock == NULL, false)) {
-    dl_pthread_mutex_trylock =
-        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_trylock");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-
-  int result = dl_pthread_mutex_trylock(mutex);
-  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
-      parallel_execution.back() && !result)
-    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
-      CilkSanImpl.do_acquire_lock((LockID_t)*lock_id);
-  return result;
-}
-
-CILKSAN_API int pthread_mutex_unlock(pthread_mutex_t *mutex) {
-  if (__builtin_expect(dl_pthread_mutex_unlock == NULL, false)) {
-    dl_pthread_mutex_unlock =
-        (pthread_mutex_lockfn_t)dlsym(RTLD_NEXT, "pthread_mutex_unlock");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-
-  int result = dl_pthread_mutex_unlock(mutex);
-  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
-      parallel_execution.back() && !result)
-    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
-      CilkSanImpl.do_release_lock((LockID_t)*lock_id);
-  return result;
 }

@@ -16,7 +16,11 @@
 
 enum class BagType_t { SBag = 0, PBag = 1 };
 
-using version_t = uint32_t;
+// NOTE: MemoryAccess_t reserves only 16 bits to store a version number, so this
+// code only uses 16-bit version numbers to match.
+using version_t = uint16_t;
+static_assert(8 * sizeof(version_t) < 64,
+              "Version type too large to fit in spbag payload.");
 
 class SPBagInterface {
 protected:
@@ -67,7 +71,7 @@ private:
   // static constexpr unsigned FUNC_ID_SHIFT = 16;
   // static constexpr uintptr_t VERSION_MASK = ((1UL << FUNC_ID_SHIFT) - 1);
   // static constexpr uintptr_t FUNC_ID_MASK = ~VERSION_MASK & ~BAG_TYPE_MASK;
-  static constexpr unsigned VERSION_END_SHIFT = 32;
+  static constexpr unsigned VERSION_END_SHIFT = 8 * sizeof(version_t);
   static constexpr uintptr_t VERSION_MASK = ((1UL << VERSION_END_SHIFT) - 1);
 
   // The call stack of the function instantiation that corresponds with this
@@ -88,9 +92,6 @@ public:
         func_id(id)
 #endif
   {
-    // // Use _payload to store the function ID
-    // _payload |= static_cast<uintptr_t>(id);
-
     WHEN_CILKSAN_DEBUG(debug_count++);
   }
 
