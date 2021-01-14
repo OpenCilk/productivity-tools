@@ -33,34 +33,34 @@ public:
             l_bot.contin_work, l_bot.achild_work,
             r_bot.contin_work, r_bot.achild_work);
     fprintf(stderr, "left contin = %ld\nleft child = %ld\n"
-            "\nright child = %ld\nright contin = %ld\n",
+            "right contin = %ld\nright child = %ld\n",
             l_bot.contin_span, l_bot.lchild_span,
-            r_bot.lchild_span, r_bot.contin_span);
+            r_bot.contin_span, r_bot.lchild_span);
     fprintf(stderr, "left contin bspan = %ld\nleft child bspan = %ld\n"
-            "\nright child bspan = %ld\nright contin bspan = %ld\n",
+            "right contin bspan = %ld\nright child bspan = %ld\n",
             l_bot.contin_bspan, l_bot.lchild_bspan,
-            r_bot.lchild_bspan, r_bot.contin_bspan);
+            r_bot.contin_bspan, r_bot.lchild_bspan);
 #endif
 
     // Add the work variables from the right stack into the left.
     l_bot.contin_work += r_bot.contin_work;
     l_bot.achild_work += r_bot.achild_work;
 
-    // Add the continuation span from the right stack into the left.
-    l_bot.contin_span += r_bot.contin_span;
     // If the left stack has a longer path from the root to the end of its
     // longest child, set this new span in keft.
     if (l_bot.contin_span + r_bot.lchild_span > l_bot.lchild_span) {
       l_bot.lchild_span = l_bot.contin_span + r_bot.lchild_span;
     }
-
     // Add the continuation span from the right stack into the left.
-    l_bot.contin_bspan += r_bot.contin_bspan;
+    l_bot.contin_span += r_bot.contin_span;
+
     // If the left stack has a longer path from the root to the end of its
     // longest child, set this new span in keft.
     if (l_bot.contin_bspan + r_bot.lchild_bspan > l_bot.lchild_bspan) {
       l_bot.lchild_bspan = l_bot.contin_bspan + r_bot.lchild_bspan;
     }
+    // Add the continuation span from the right stack into the left.
+    l_bot.contin_bspan += r_bot.contin_bspan;
   }
 };
 

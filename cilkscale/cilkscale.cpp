@@ -231,7 +231,8 @@ void __csi_func_entry(const csi_id_t func_id, const func_prop_t prop) {
   stack.stop.gettime();
 
 #if TRACE_CALLS
-  fprintf(stderr, "func_entry(%ld)\n", func_id);
+  fprintf(stderr, "[W%d] func_entry(%ld)\n", __cilkrts_get_worker_number(),
+          func_id);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
@@ -269,7 +270,8 @@ void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
   stack.stop.gettime();
 
 #if TRACE_CALLS
-  fprintf(stderr, "func_exit(%ld)\n", func_id);
+  fprintf(stderr, "[W%d] func_exit(%ld)\n", __cilkrts_get_worker_number(),
+          func_id);
 #endif
 
   duration_t strand_time = elapsed_time(&(stack.stop), &(stack.start));
@@ -299,7 +301,8 @@ void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned) {
   stack.stop.gettime();
 
 #if TRACE_CALLS
-  fprintf(stderr, "[W%d] detach(%ld)\n", __cilkrts_get_worker_number(), detach_id);
+  fprintf(stderr, "[W%d] detach(%ld)\n", __cilkrts_get_worker_number(),
+          detach_id);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
@@ -316,7 +319,8 @@ void __csi_task(const csi_id_t task_id, const csi_id_t detach_id,
   shadow_stack_t &stack = STACK;
 
 #if TRACE_CALLS
-  fprintf(stderr, "task(%ld, %ld)\n", task_id, detach_id);
+  fprintf(stderr, "[W%d] task(%ld, %ld)\n", __cilkrts_get_worker_number(),
+          task_id, detach_id);
 #endif
 
   shadow_stack_frame_t &p_bottom = stack.peek_bot();
@@ -337,8 +341,8 @@ void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
   stack.stop.gettime();
 
 #if TRACE_CALLS
-  fprintf(stderr, "task_exit(%ld, %ld, %ld)\n", task_exit_id, task_id,
-          detach_id);
+  fprintf(stderr, "[W%d] task_exit(%ld, %ld, %ld)\n",
+          __cilkrts_get_worker_number(), task_exit_id, task_id, detach_id);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
@@ -370,8 +374,8 @@ void __csi_detach_continue(const csi_id_t detach_continue_id,
   shadow_stack_t &stack = STACK;
 
 #if TRACE_CALLS
-  fprintf(stderr, "detach_continue(%ld, %ld, %ld)\n", detach_continue_id,
-          detach_id, prop);
+  fprintf(stderr, "[W%d] detach_continue(%ld, %ld, %ld)\n",
+          __cilkrts_get_worker_number(), detach_continue_id, detach_id, prop);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
@@ -408,7 +412,8 @@ void __csi_before_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
   stack.stop.gettime();
 
 #if TRACE_CALLS
-  fprintf(stderr, "before_sync(%ld)\n", sync_id);
+  fprintf(stderr, "[W%d] before_sync(%ld)\n", __cilkrts_get_worker_number(),
+          sync_id);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
@@ -424,7 +429,8 @@ void __csi_after_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
   shadow_stack_t &stack = STACK;
 
 #if TRACE_CALLS
-  fprintf(stderr, "after_sync(%ld)\n", sync_id);
+  fprintf(stderr, "[W%d] after_sync(%ld)\n", __cilkrts_get_worker_number(),
+          sync_id);
 #endif
 
   shadow_stack_frame_t &bottom = stack.peek_bot();
