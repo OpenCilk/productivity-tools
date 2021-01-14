@@ -2,6 +2,9 @@
 #ifndef _ADDR_MAP_H
 #define _ADDR_MAP_H
 
+#include <sys/mman.h>
+
+#include "checking.h"
 #include "debug_util.h"
 
 template <typename DATA_T>
@@ -34,10 +37,14 @@ class AddrMap_t {
     // To accommodate the size and sparse access pattern of a Page_t, use
     // mmap/munmap to allocate and free Page_t's.
     void *operator new(size_t size) {
+      CheckingRAII nocheck;
       return mmap(nullptr, sizeof(Page_t), PROT_READ | PROT_WRITE,
                   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     }
-    void operator delete(void *ptr) { munmap(ptr, sizeof(Page_t)); }
+    void operator delete(void *ptr) {
+      CheckingRAII nocheck;
+      munmap(ptr, sizeof(Page_t));
+    }
 
     // Operators for accessing lines
     DATA_T &operator[](uintptr_t byteaddr) { return Bytes[byteaddr]; }

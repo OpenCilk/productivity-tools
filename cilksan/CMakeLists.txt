@@ -2,10 +2,12 @@
 
 set(CILKSAN_SOURCES
   cilksan.cpp
+  csanrt.cpp
   debug_util.cpp
-  print_addr.cpp
-  drivercsan.cpp
-  csanrt.cpp)
+  driver.cpp
+  libhooks.cpp
+  locking.cpp
+  print_addr.cpp)
 
 include_directories(${CILKTOOLS_SOURCE_DIR}/include)
 

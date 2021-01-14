@@ -8,7 +8,6 @@
 
 #include "csan.h"
 
-#include "cilksan.h"
 #include "dictionary.h"
 #include "disjointset.h"
 #include "frame_data.h"
@@ -104,6 +103,16 @@ public:
     // }
   }
 
+  // Restore the stack pointer to the previous value addr
+  inline void restore_stack(csi_id_t call_id, uintptr_t addr) {
+    uintptr_t current_stack = *sp_stack.head();
+    if (addr > current_stack) {
+      record_free(current_stack, addr - current_stack, call_id,
+                  MAType_t::STACK_FREE);
+      *sp_stack.head() = addr;
+    }
+  }
+
   inline bool is_local_synced() const {
     FrameData_t *f = frame_stack.head();
     if (f->Pbags)
@@ -113,16 +122,15 @@ public:
     return true;
   }
 
-  void do_enter_begin(unsigned num_sync_reg);
-  void do_enter_helper_begin(unsigned num_sync_reg);
-  void do_enter_end(uintptr_t stack_ptr);
-  void do_detach_begin();
-  void do_detach_end();
+  // Control-flow actions
+  void do_enter(unsigned num_sync_reg);
+  void do_enter_helper(unsigned num_sync_reg);
+  void do_detach();
   void do_detach_continue();
   void do_loop_begin() {
     start_new_loop = true;
   }
-  void do_loop_iteration_begin(uintptr_t stack_ptr, unsigned num_sync_reg);
+  void do_loop_iteration_begin(unsigned num_sync_reg);
   void do_loop_iteration_end();
   void do_loop_end(unsigned sync_reg);
   bool in_loop() const {
@@ -131,27 +139,23 @@ public:
   bool handle_loop() const {
     return in_loop() || (true == start_new_loop);
   }
-  void do_sync_begin();
-  void do_sync_end(unsigned sync_reg);
+  void do_sync(unsigned sync_reg);
   void do_return();
-  void do_leave_begin(unsigned sync_reg);
-  void do_leave_end();
-  // void do_function_entry(uint64_t an_address);
-  // void do_function_exit();
+  void do_leave(unsigned sync_reg);
 
   // Memory actions
   void do_read(const csi_id_t load_id, uintptr_t addr, size_t len,
                unsigned alignment);
   void do_write(const csi_id_t store_id, uintptr_t addr, size_t len,
                 unsigned alignment);
+  void do_func_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+                    unsigned alignment);
+  void do_func_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+                     unsigned alignment);
   void clear_shadow_memory(size_t start, size_t end);
   void record_alloc(size_t start, size_t size, csi_id_t alloca_id);
   void record_free(size_t start, size_t size, csi_id_t acc_id, MAType_t type);
   void clear_alloc(size_t start, size_t size);
-
-  const call_stack_t &get_current_call_stack() const {
-    return call_stack;
-  }
 
   // Methods for locked accesses
   inline void do_acquire_lock(LockID_t lock_id) {
@@ -187,8 +191,15 @@ public:
       do_write(store_id, addr, len, alignment);
     }
   }
+  void do_locked_func_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+                           unsigned alignment);
+  void do_locked_func_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+                            unsigned alignment);
 
-  // defined in print_addr.cpp
+  // Methods for recording and reporting races
+  const call_stack_t &get_current_call_stack() const {
+    return call_stack;
+  }
   void report_race(
       const AccessLoc_t &first_inst, const AccessLoc_t &second_inst,
       uintptr_t addr, enum RaceType_t race_type);
@@ -198,7 +209,6 @@ public:
       enum RaceType_t race_type);
   void print_race_report();
   int get_num_races_found();
-  void print_current_function_info();
 
 private:
   inline void merge_bag_from_returning_child(bool returning_from_detach,
@@ -216,6 +226,13 @@ private:
   template <bool is_read>
   inline void record_locked_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                        size_t mem_size, unsigned alignment);
+  template <bool is_read>
+  inline void record_func_mem_helper(const csi_id_t acc_id, uintptr_t addr,
+                                     size_t mem_size, unsigned alignment);
+  template <bool is_read>
+  inline void record_locked_func_mem_helper(const csi_id_t acc_id,
+                                            uintptr_t addr, size_t mem_size,
+                                            unsigned alignment);
   inline void print_stats();
   static bool ColorizeReports();
   static bool PauseOnRace();

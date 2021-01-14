@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <sys/mman.h>
 
+#include "checking.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "dictionary.h"
@@ -592,10 +593,14 @@ private:
     // To accommodate their size and sparse access pattern, use mmap/munmap to
     // allocate and free Page_t's.
     void *operator new(size_t size) {
+      CheckingRAII nocheck;
       return mmap(nullptr, sizeof(Page_t), PROT_READ | PROT_WRITE,
                   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     }
-    void operator delete(void *ptr) { munmap(ptr, sizeof(Page_t)); }
+    void operator delete(void *ptr) {
+      CheckingRAII nocheck;
+      munmap(ptr, sizeof(Page_t));
+    }
 
     // Operators for accessing lines
     LineType &operator[](uintptr_t line) { return lines[line]; }
@@ -762,10 +767,14 @@ private:
     // To accommodate their size and sparse access pattern, use mmap/munmap to
     // allocate and free Page_t's.
     void *operator new(size_t size) {
+      CheckingRAII nocheck;
       return mmap(nullptr, sizeof(LockerPage_t), PROT_READ | PROT_WRITE,
                   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     }
-    void operator delete(void *ptr) { munmap(ptr, sizeof(LockerPage_t)); }
+    void operator delete(void *ptr) {
+      CheckingRAII nocheck;
+      munmap(ptr, sizeof(LockerPage_t));
+    }
 
     // Operators for accessing lines
     LockerLine_t &operator[](uintptr_t line) { return lines[line]; }
@@ -1528,13 +1537,14 @@ public:
   // Instantiate check_race to check for a determinacy race with a previous read
   // access.
   __attribute__((always_inline)) void
-  check_race_with_prev_read(const csi_id_t acc_id, uintptr_t addr,
-                            size_t mem_size, FrameData_t *f) const {
+  check_race_with_prev_read(const csi_id_t acc_id, MAType_t type,
+                            uintptr_t addr, size_t mem_size,
+                            FrameData_t *f) const {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using QITy = RDict::Query_iterator<RDict::Page_t>;
     QITy QI = Reads.getQueryIterator(addr, mem_size);
     // The second argument does not matter here.
-    check_race<QITy, true, false>(QI, acc_id, MAType_t::RW, f);
+    check_race<QITy, true, false>(QI, acc_id, type, f);
   }
 
   // Instantiate check_race to check for a determinacy race with a previous
@@ -1577,14 +1587,13 @@ public:
   }
 
   // Instantiate update to update the read dictionary with a new read access.
-  __attribute__((always_inline)) void update_with_read(const csi_id_t acc_id,
-                                                       uintptr_t addr,
-                                                       size_t mem_size,
-                                                       FrameData_t *f) {
+  __attribute__((always_inline)) void
+  update_with_read(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
+                   size_t mem_size, FrameData_t *f) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using UITy = RDict::Update_iterator<RDict::Page_t>;
     UITy UI = Reads.getUpdateIterator(addr, mem_size);
-    update<UITy, RDict::MASetFn>(UI, acc_id, MAType_t::RW, f);
+    update<UITy, RDict::MASetFn>(UI, acc_id, type, f);
   }
 
   // Core routine that combines the checking and updating of the write
@@ -1648,12 +1657,11 @@ public:
     // Get the line storing the previous write to this location, if any.
     RLine_t *__restrict__ read_line =
         Reads.getLineMustExist<RDict::Page_t>(addr, mem_size);
-        // Reads.getOrCreateLine<RDict::Page_t>(addr, mem_size);
     bool need_update = true;
     if ((1 << read_line->getLgGrainsize()) != (unsigned)mem_size) {
       // This access touches more than one entry in the line.  Handle it via the
       // slow path.
-      update_with_read(acc_id, addr, mem_size, f);
+      update_with_read(acc_id, type, addr, mem_size, f);
       need_update = false;
     }
 
@@ -1719,14 +1727,13 @@ public:
     if (need_read_check && (1 << read_line->getLgGrainsize()) != (unsigned)mem_size) {
       // This access touches more than one entry in the line.  Handle it via the
       // slow path.
-      check_race_with_prev_read(acc_id, addr, mem_size, f);
+      check_race_with_prev_read(acc_id, type, addr, mem_size, f);
       need_read_check = false;
     }
 
     // Get the line storing the previous write to this location, if any.
     WLine_t *__restrict__ write_line =
         Writes.getLineMustExist<WDict::Page_t>(addr, mem_size);
-        // Writes.getOrCreateLine<WDict::Page_t>(addr, mem_size);
     bool need_update = true;
     if ((1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
       // This access touches more than one entry in the line.  Handle it via the
@@ -1848,16 +1855,16 @@ public:
   }
 
   __attribute__((always_inline)) void
-  check_data_race_with_prev_read(const csi_id_t acc_id, uintptr_t addr,
-                                 size_t mem_size, FrameData_t *f,
-                                 const LockSet_t &LS) const {
+  check_data_race_with_prev_read(const csi_id_t acc_id, MAType_t type,
+                                 uintptr_t addr, size_t mem_size,
+                                 FrameData_t *f, const LockSet_t &LS) const {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using QITy = RDict::Query_iterator<RDict::Page_t>;
     using LQITy = RDict::Query_iterator<RDict::LockerPage_t>;
     QITy QI = Reads.getQueryIterator(addr, mem_size);
     // The second argument does not matter here.
-    check_data_race<RDict, QITy, LQITy, true, false>(Reads, QI, acc_id,
-                                                     MAType_t::RW, f, LS);
+    check_data_race<RDict, QITy, LQITy, true, false>(Reads, QI, acc_id, type, f,
+                                                     LS);
   }
 
   template <bool is_read>
@@ -1883,13 +1890,13 @@ public:
   }
 
   __attribute__((always_inline)) void
-  update_lockers_with_read(const csi_id_t acc_id, uintptr_t addr,
+  update_lockers_with_read(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
                            size_t mem_size, FrameData_t *f,
                            const LockSet_t &LS) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using UITy = RDict::Update_iterator<RDict::LockerPage_t>;
     UITy UI = Reads.getLockerUpdateIterator(addr, mem_size);
-    update_lockers<UITy, RDict::LockerSetFn>(UI, acc_id, MAType_t::RW, f, LS);
+    update_lockers<UITy, RDict::LockerSetFn>(UI, acc_id, type, f, LS);
   }
 
   __attribute__((always_inline)) void

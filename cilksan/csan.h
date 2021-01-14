@@ -3,7 +3,6 @@
 #define __CSAN_H__
 
 #include <csi/csi.h>
-
 #include <cstring>
 
 typedef struct {
