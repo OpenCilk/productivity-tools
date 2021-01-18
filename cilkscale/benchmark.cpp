@@ -76,9 +76,10 @@ class BenchmarkImpl_t {
 public:
   // Timer for tracking execution time.
   cilkscale_timer_t start, stop;
+#if SERIAL_TOOL
   cilkscale_timer_t timer;
-#if !SERIAL_TOOL
-  cilkscale_timer_reducer *timer_red = nullptr;
+#else
+  cilkscale_timer_reducer timer;
 #endif
 
   std::ostream &outs = std::cout;
@@ -89,11 +90,6 @@ public:
 
   BenchmarkImpl_t();
   ~BenchmarkImpl_t();
-
-  // Callbacks run for initializing and deinitializing the tool state when the
-  // OpenCilk runtime starts up and shuts down.
-  void cilkify(void);
-  void uncilkify(void);
 };
 
 // Top-level benchmarking tool.
@@ -104,7 +100,7 @@ static BenchmarkImpl_t tool;
 #if SERIAL_TOOL
 #define TIMER (tool.timer)
 #else
-#define TIMER ((tool.timer_red) ? (tool.timer_red->get_view()) : (tool.timer))
+#define TIMER (tool.timer.get_view())
 #endif
 
 // Macro to access the correct output stream, based on the initialized state of
@@ -112,8 +108,9 @@ static BenchmarkImpl_t tool;
 #if SERIAL_TOOL
 #define OUTPUT ((tool.outf.is_open()) ? (tool.outf) : (tool.outs))
 #else
-#define OUTPUT ((tool.outf_red) ? (**(tool.outf_red)) :                 \
-                ((tool.outf.is_open()) ? (tool.outf) : (tool.outs)))
+#define OUTPUT                                                                 \
+  ((tool.outf_red) ? (**(tool.outf_red))                                       \
+                   : ((tool.outf.is_open()) ? (tool.outf) : (tool.outs)))
 #endif
 
 static bool TOOL_INITIALIZED = false;
@@ -167,54 +164,20 @@ BenchmarkImpl_t::~BenchmarkImpl_t() {
   if (outf.is_open())
     outf.close();
 
-  TOOL_INITIALIZED = false;
-}
-
-// Initialize tool state that depends on the Cilk runtime system.
-void BenchmarkImpl_t::cilkify(void) {
-#if TRACE_CALLS
-  fprintf(stderr, "benchmark_cilkify\n");
-#endif
-
 #if !SERIAL_TOOL
-  timer_red = new cilkscale_timer_reducer();
-  outf_red = new cilk::reducer<cilk::op_ostream>(OUTPUT);
-#endif
-}
-
-// Deinitialize tool state that depends on the Cilk runtime system.
-void BenchmarkImpl_t::uncilkify(void) {
-#if TRACE_CALLS
-  fprintf(stderr, "benchmark_uncilkify\n");
-#endif
-
-#if !SERIAL_TOOL
-  delete timer_red;
-  timer_red = nullptr;
   delete outf_red;
   outf_red = nullptr;
 #endif
+
+  TOOL_INITIALIZED = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 // Hooks for operating the tool.
 
-// Callback to initialze Cilk-runtime-dependent tool state when the Cilk runtime
-// system starts.
-void benchmark_cilkify(void) { tool.cilkify(); }
-
-// Callback to deinitialze Cilk-runtime-dependent tool state when the Cilk
-// runtime system stops.
-void benchmark_uncilkify(void) { tool.uncilkify(); }
-
 CILKTOOL_API void __csi_init() {
 #if TRACE_CALLS
   fprintf(stderr, "__csi_init()\n");
-#endif
-
-#if !SERIAL_TOOL
-  __cilkrts_atinit(benchmark_cilkify);
-  __cilkrts_atexit(benchmark_uncilkify);
 #endif
 }
 
