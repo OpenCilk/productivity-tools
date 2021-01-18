@@ -76,17 +76,6 @@ CILKSAN_API void __cilksan_unregister_lock_explicit(const void *mutex) {
 struct __cilkrts_worker;
 extern "C" __cilkrts_worker *__cilkrts_get_tls_worker();
 
-#define START_DL_INTERPOSER(func, type)                                        \
-  if (__builtin_expect(dl_##func == NULL, false)) {                            \
-    dl_##func = (type)dlsym(RTLD_NEXT, #func);                                 \
-    char *error = dlerror();                                                   \
-    if (error != NULL) {                                                       \
-      fputs(error, err_io);                                                    \
-      fflush(err_io);                                                          \
-      abort();                                                                 \
-    }                                                                          \
-  }
-
 typedef int (*pthread_mutex_init_t)(pthread_mutex_t *,
                                     const pthread_mutexattr_t *);
 static pthread_mutex_init_t dl_pthread_mutex_init = NULL;

@@ -17,6 +17,19 @@
 // FILE io used to print error messages
 extern FILE *err_io;
 
+#define START_DL_INTERPOSER(func, type)                                        \
+  if (__builtin_expect(dl_##func == NULL, false)) {                            \
+    dl_##func = (type)dlsym(RTLD_NEXT, #func);                                 \
+    if (__builtin_expect(dl_##func == NULL, false)) {                          \
+      char *error = dlerror();                                                 \
+      if (error != NULL) {                                                     \
+        fputs(error, err_io);                                                  \
+        fflush(err_io);                                                        \
+      }                                                                        \
+      abort();                                                                 \
+    }                                                                          \
+  }
+
 extern CilkSanImpl_t CilkSanImpl;
 
 // Defined in print_addr.cpp

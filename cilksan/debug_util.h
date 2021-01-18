@@ -11,9 +11,6 @@
 #endif
 #endif
 
-// if NULL, err_io is set to stderr
-#define ERROR_FILE NULL
-
 // debug_level is a bitmap
 //   1 is basic debugging (old level 1)
 //   2 is debug the backtrace

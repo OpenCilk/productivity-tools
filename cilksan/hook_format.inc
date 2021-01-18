@@ -1,3 +1,4 @@
+// -*- C++ -*-
 // Copied and adapted from sanitizer_common_interceptors_format.inc.
 //
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
@@ -349,7 +350,7 @@ static void scanf_common(csi_id_t call_id, unsigned &MAAP_count, int n_inputs,
       continue;
     int size = scanf_get_value_size(&dir);
     if (size == FSS_INVALID) {
-      fprintf(stderr,
+      fprintf(err_io,
               "Cilksan Warning: Unexpected format specifier in scanf hook: ",
               "%.*s\n", dir.end - dir.begin, dir.begin);
       break;
@@ -487,7 +488,7 @@ static int printf_get_value_size(PrintfDirective *dir) {
         va_arg(*aq, long double);                                              \
         break;                                                                 \
       default:                                                                 \
-        fprintf(stderr,                                                        \
+        fprintf(err_io,                                                        \
                 "Cilksan Warning: Unexpected floating-point arg size"          \
                 " in printf hook: %d\n",                                       \
                 size);                                                         \
@@ -504,7 +505,7 @@ static int printf_get_value_size(PrintfDirective *dir) {
         va_arg(*aq, uint64_t);                                                 \
         break;                                                                 \
       default:                                                                 \
-        fprintf(stderr,                                                        \
+        fprintf(err_io,                                                        \
                 "Cilksan Warning: Unexpected arg size"                         \
                 " in printf hook: %d\n",                                       \
                 size);                                                         \
@@ -557,7 +558,7 @@ static void printf_common(csi_id_t call_id, unsigned &MAAP_count,
     if (size == FSS_INVALID) {
       static int ReportedOnce;
       if (!ReportedOnce++)
-        fprintf(stderr,
+        fprintf(err_io,
                 "Cilksan Warning: Unexpected format specifier in printf "
                 "hook: %.*s (reported once per process)\n",
                 dir.end - dir.begin, dir.begin);

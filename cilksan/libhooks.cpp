@@ -80,7 +80,7 @@ CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
 
   // Alert the user of the function that is not handled.
   const csan_source_loc_t *src_loc = __csan_get_call_source_loc(call_id);
-  fprintf(stderr,
+  fprintf(err_io,
           "Cilksan Warning: Call to standard library or intrinsic function not "
           "handled in %s (%s:%d:%d)\n",
           (src_loc->name ? src_loc->name : "<no function name>"),

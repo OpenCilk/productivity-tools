@@ -14,7 +14,7 @@
 #include "addrmap.h"
 
 // FILE io used to print error messages
-FILE *err_io;
+FILE *err_io = stderr;
 
 // defined in libopencilk
 extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
@@ -928,7 +928,7 @@ static std::map<uintptr_t, size_t> pages_to_clear;
 
 // Flag to manage initialization of memory functions.  We need this flag because
 // dlsym uses some of the memory functions we are trying to interpose, which
-// means that calling dlysm directly will lead to infinite recursion and a
+// means that calling dlsym directly will lead to infinite recursion and a
 // segfault.  Fortunately, dlsym can make do with memory-allocation functions
 // returning NULL, so we return NULL when we detect this inifinite recursion.
 //
@@ -970,46 +970,38 @@ static void initialize_memory_functions() {
   mem_initialized = -1;
 
   real_malloc = (malloc_t)dlsym(RTLD_NEXT, "malloc");
-  char *error = dlerror();
-  if (error != NULL)
+  if (real_malloc == NULL)
     goto error_exit;
 
   real_calloc = (calloc_t)dlsym(RTLD_NEXT, "calloc");
-  error = dlerror();
-  if (error != NULL)
+  if (real_calloc == NULL)
     goto error_exit;
 
   real_realloc = (realloc_t)dlsym(RTLD_NEXT, "realloc");
-  error = dlerror();
-  if (error != NULL)
+  if (real_realloc == NULL)
     goto error_exit;
 
   real_free = (free_t)dlsym(RTLD_NEXT, "free");
-  error = dlerror();
-  if (error != NULL)
+  if (real_free == NULL)
     goto error_exit;
 
   real_mmap = (mmap_t)dlsym(RTLD_NEXT, "mmap");
-  error = dlerror();
-  if (error != NULL)
+  if (real_mmap == NULL)
     goto error_exit;
 
 #if defined(_LARGEFILE64_SOURCE)
   real_mmap64 = (mmap64_t)dlsym(RTLD_NEXT, "mmap64");
-  error = dlerror();
-  if (error != NULL)
+  if (real_mmap64 == NULL)
     goto error_exit;
 #endif // defined(_LARGEFILE64_SOURCE)
 
   real_munmap = (munmap_t)dlsym(RTLD_NEXT, "munmap");
-  error = dlerror();
-  if (error != NULL)
+  if (real_munmap == NULL)
     goto error_exit;
 
 #if __linux__
   real_mremap = (mremap_t)dlsym(RTLD_NEXT, "mremap");
-  error = dlerror();
-  if (error != NULL)
+  if (real_mremap == NULL)
     goto error_exit;
 #endif // __linux__
 
@@ -1018,11 +1010,12 @@ static void initialize_memory_functions() {
   return;
 
  error_exit:
-  fputs(error, err_io);
-  fflush(err_io);
+  char *error = dlerror();
+  if (error != NULL) {
+    fputs(error, err_io);
+    fflush(err_io);
+  }
   abort();
-  enable_checking();
-  return;
 }
 
 // CILKSAN_API void* malloc(size_t s) {
@@ -1279,23 +1272,15 @@ struct __cilkrts_worker;
 // interpositioning.
 typedef cilkred_map *(*merge_two_rmaps_t)(__cilkrts_worker *, cilkred_map *,
                                           cilkred_map *);
-static merge_two_rmaps_t dl_merge_two_rmaps = NULL;
+static merge_two_rmaps_t dl___cilkrts_internal_merge_two_rmaps = NULL;
 
 CILKSAN_API __attribute__((weak)) cilkred_map *
 __cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws, cilkred_map *left,
                                    cilkred_map *right) {
-  if (__builtin_expect(dl_merge_two_rmaps == NULL, 0)) {
-    dl_merge_two_rmaps = (merge_two_rmaps_t)dlsym(
-        RTLD_NEXT, "__cilkrts_internal_merge_two_rmaps");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
+  START_DL_INTERPOSER(__cilkrts_internal_merge_two_rmaps, merge_two_rmaps_t);
+
   disable_checking();
-  cilkred_map *res = dl_merge_two_rmaps(ws, left, right);
+  cilkred_map *res = dl___cilkrts_internal_merge_two_rmaps(ws, left, right);
   enable_checking();
 
   return res;
@@ -1322,21 +1307,13 @@ cilkred_map *__wrap___cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws,
 
 // Wrapped __cilkrts_hyper_alloc method for dynamic interpositioning.
 typedef void *(*hyper_alloc_t)(void *, size_t);
-static hyper_alloc_t dl_hyper_alloc = NULL;
+static hyper_alloc_t dl___cilkrts_hyper_alloc = NULL;
 
 CILKSAN_API __attribute__((weak)) void*
 __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
-  if (__builtin_expect(dl_hyper_alloc == NULL, 0)) {
-    dl_hyper_alloc = (hyper_alloc_t)dlsym(
-        RTLD_NEXT, "__cilkrts_hyper_alloc");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
-  void *ptr = dl_hyper_alloc(ignored, bytes);
+  START_DL_INTERPOSER(__cilkrts_hyper_alloc, hyper_alloc_t);
+
+  void *ptr = dl___cilkrts_hyper_alloc(ignored, bytes);
   malloc_sizes.insert((uintptr_t)ptr, bytes);
   CilkSanImpl.record_alloc((size_t)ptr, bytes, 0);
   CilkSanImpl.clear_shadow_memory((size_t)ptr, bytes);
@@ -1360,27 +1337,19 @@ void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 
 // Wrapped __cilkrts_hyper_dealloc method for dynamic interpositioning.
 typedef void (*hyper_dealloc_t)(void *, void *);
-static hyper_dealloc_t dl_hyper_dealloc = NULL;
+static hyper_dealloc_t dl___cilkrts_hyper_dealloc = NULL;
 
 CILKSAN_API __attribute__((weak)) void
 __cilkrts_hyper_dealloc(void *ignored, void *view) {
-  if (__builtin_expect(dl_hyper_dealloc == NULL, 0)) {
-    dl_hyper_dealloc = (hyper_dealloc_t)dlsym(
-        RTLD_NEXT, "__cilkrts_hyper_dealloc");
-    char *error = dlerror();
-    if (error != NULL) {
-      fputs(error, err_io);
-      fflush(err_io);
-      abort();
-    }
-  }
+  START_DL_INTERPOSER(__cilkrts_hyper_dealloc, hyper_dealloc_t);
+
   const size_t *size = malloc_sizes.get((uintptr_t)view);
   if (malloc_sizes.contains((uintptr_t)view)) {
     CilkSanImpl.clear_alloc((size_t)view, *size);
     CilkSanImpl.clear_shadow_memory((size_t)view, *size);
     malloc_sizes.remove((uintptr_t)view);
   }
-  dl_hyper_dealloc(ignored, view);
+  dl___cilkrts_hyper_dealloc(ignored, view);
 }
 
 /// Wrapped __cilkrts_hyper_alloc method for link-time interpositioning.
