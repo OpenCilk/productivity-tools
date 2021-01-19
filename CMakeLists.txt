@@ -5,7 +5,6 @@ cmake_minimum_required(VERSION 3.4.3)
 if(POLICY CMP0068)
   cmake_policy(SET CMP0068 NEW)
   set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
-  cmake_policy(SET CMP0075 NEW)
 endif()
 
 # Check if cilktools is built as a standalone project.
@@ -56,12 +55,34 @@ if (CILKTOOLS_STANDALONE_BUILD)
     set_target_properties(intrinsics_gen PROPERTIES FOLDER "Cilktools Misc")
   endif()
 
-  # Find Python interpreter.
-  include(FindPythonInterp)
-  if(NOT PYTHONINTERP_FOUND)
-    message(FATAL_ERROR "
-      Unable to find Python interpreter required testing. Please install Python
-      or specify the PYTHON_EXECUTABLE CMake variable.")
+  if(CMAKE_VERSION VERSION_LESS 3.12)
+    # Find Python interpreter.
+    include(FindPythonInterp)
+    if(NOT PYTHONINTERP_FOUND)
+      message(FATAL_ERROR "
+        Unable to find Python interpreter required testing. Please install Python
+        or specify the PYTHON_EXECUTABLE CMake variable.")
+    endif()
+
+    add_executable(Python3::Interpreter IMPORTED)
+    set_target_properties(Python3::Interpreter PROPERTIES
+      IMPORTED_LOCATION ${PYTHON_EXECUTABLE})
+    set(Python3_EXECUTABLE ${PYTHON_EXECUTABLE})
+  else()
+    find_package(Python3 COMPONENTS Interpreter)
+    if(NOT Python3_Interpreter_FOUND)
+      message(WARNING "Python3 not found, using python2 as a fallback")
+      find_package(Python2 COMPONENTS Interpreter REQUIRED)
+      if(Python2_VERSION VERSION_LESS 2.7)
+        message(SEND_ERROR "Python 2.7 or newer is required")
+      endif()
+
+      # Treat python2 as python3
+      add_executable(Python3::Interpreter IMPORTED)
+      set_target_properties(Python3::Interpreter PROPERTIES
+        IMPORTED_LOCATION ${Python2_EXECUTABLE})
+      set(Python3_EXECUTABLE ${Python2_EXECUTABLE})
+    endif()
   endif()
 
   # Ensure that fat libraries are built correctly on Darwin
@@ -273,7 +294,6 @@ append_list_if(CILKTOOLS_HAS_NODEFAULTLIBS_FLAG -nodefaultlibs SANITIZER_COMMON_
 append_list_if(CILKTOOLS_HAS_Z_TEXT -Wl,-z,text SANITIZER_COMMON_LINK_FLAGS)
 
 # if (CILKTOOLS_USE_BUILTINS_LIBRARY)
-#   list(APPEND SANITIZER_COMMON_LINK_LIBS ${CILKTOOLS_BUILTINS_LIBRARY})
 #   string(REPLACE "-Wl,-z,defs" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 # else()
 append_list_if(CILKTOOLS_HAS_GCC_S_LIB gcc_s SANITIZER_COMMON_LINK_LIBS)
@@ -357,14 +377,11 @@ else()
   set(CILKTOOLS_LLD_PATH ${LLVM_MAIN_SRC_DIR}/../lld)
   if(EXISTS ${CILKTOOLS_LLD_PATH}/ AND LLVM_TOOL_LLD_BUILD)
     set(CILKTOOLS_HAS_LLD TRUE)
-  else()
-    set(CILKTOOLS_HAS_LLD ${CILKTOOLS_HAS_FUSE_LD_LLD_FLAG})
   endif()
 endif()
 pythonize_bool(CILKTOOLS_HAS_LLD)
 
 include(AddCilktools)
-include(SanitizerUtils)
 
 set(ALL_CILKTOOLS csi;cilksan;cilkscale)
 set(CILKTOOLS_TO_BUILD all CACHE STRING
