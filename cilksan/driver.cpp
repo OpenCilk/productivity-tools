@@ -212,7 +212,6 @@ CILKSAN_API void __csan_init() {
   // to shutdown and cleanup the tool at program termination.
 
   init_internal();
-  TOOL_INITIALIZED = true;
 }
 
 // Helper function to grow a map from CSI ID to program counter (PC).
@@ -274,6 +273,9 @@ static inline void handle_stack_switch(uintptr_t bp, uintptr_t sp) {
 CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
                                    const void *bp, const void *sp,
                                    const func_prop_t prop) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   { // Handle tool initialization as a special case.
     static bool first_call = true;
     if (first_call) {
@@ -311,7 +313,6 @@ CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
                 srcloc->name, srcloc->filename,
                 srcloc->line_number);
     });
-  cilksan_assert(TOOL_INITIALIZED);
 
   // Propagate the parallel-execution state to the child.
   uint8_t current_pe = parallel_execution.back();
@@ -340,10 +341,12 @@ CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
 CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
                                   const csi_id_t func_id,
                                   const func_exit_prop_t prop) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check())
     return;
 
-  cilksan_assert(TOOL_INITIALIZED);
 #if CILKSAN_DEBUG
   const csan_source_loc_t *srcloc = __csan_get_func_exit_source_loc(func_exit_id);
 #endif
@@ -597,10 +600,11 @@ CILKSAN_API void __csan_detach_continue(const csi_id_t detach_continue_id,
 
 // Hook called at a sync
 CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
-  if (!should_check())
+  if (!TOOL_INITIALIZED)
     return;
 
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!should_check())
+    return;
 
   // Because this is a serial tool, we can safely perform all operations related
   // to a sync.
@@ -623,7 +627,9 @@ CILKSAN_API void __csan_sync(csi_id_t sync_id, const unsigned sync_reg) {
 CILKSAN_API
 void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
                  load_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
               size);
@@ -657,7 +663,9 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
 CILKSAN_API
 void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
                        load_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
               size);
@@ -691,7 +699,9 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
 CILKSAN_API
 void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
                   store_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
               size);
@@ -726,7 +736,9 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
 CILKSAN_API
 void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
                         store_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check()) {
     DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
               size);
@@ -764,7 +776,9 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
 CILKSAN_API
 void __csi_after_alloca(const csi_id_t alloca_id, const void *addr,
                         size_t size, const alloca_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check())
     return;
 
@@ -791,7 +805,9 @@ CILKSAN_API
 void __csan_after_allocfn(const csi_id_t allocfn_id, const void *addr,
                           size_t size, size_t num, size_t alignment,
                           const void *oldaddr, const allocfn_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check())
     return;
 
@@ -879,7 +895,9 @@ CILKSAN_API void __csan_alloc_posix_memalign(const csi_id_t allocfn_id,
                                              const allocfn_prop_t prop,
                                              int result, void **ptr,
                                              size_t alignment, size_t size) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check())
     return;
   if (__builtin_expect(!allocfn_pc[allocfn_id], false))
@@ -900,7 +918,9 @@ CILKSAN_API void __csan_alloc_posix_memalign(const csi_id_t allocfn_id,
 CILKSAN_API
 void __csan_after_free(const csi_id_t free_id, const void *ptr,
                        const free_prop_t prop) {
-  cilksan_assert(TOOL_INITIALIZED);
+  if (!TOOL_INITIALIZED)
+    return;
+
   if (!should_check())
     return;
 
@@ -1274,7 +1294,7 @@ typedef cilkred_map *(*merge_two_rmaps_t)(__cilkrts_worker *, cilkred_map *,
                                           cilkred_map *);
 static merge_two_rmaps_t dl___cilkrts_internal_merge_two_rmaps = NULL;
 
-CILKSAN_API __attribute__((weak)) cilkred_map *
+CILKSAN_API cilkred_map *
 __cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws, cilkred_map *left,
                                    cilkred_map *right) {
   START_DL_INTERPOSER(__cilkrts_internal_merge_two_rmaps, merge_two_rmaps_t);
@@ -1288,7 +1308,7 @@ __cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws, cilkred_map *left,
 
 /// Wrapped __cilkrts_internal_merge_two_rmaps method for link-time
 /// interpositioning.
-CILKSAN_API __attribute__((weak)) cilkred_map *
+CILKSAN_API cilkred_map *
 __real___cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws,
                                           cilkred_map *left,
                                           cilkred_map *right) {
@@ -1309,7 +1329,7 @@ cilkred_map *__wrap___cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws,
 typedef void *(*hyper_alloc_t)(void *, size_t);
 static hyper_alloc_t dl___cilkrts_hyper_alloc = NULL;
 
-CILKSAN_API __attribute__((weak)) void*
+CILKSAN_API void*
 __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
   START_DL_INTERPOSER(__cilkrts_hyper_alloc, hyper_alloc_t);
 
@@ -1321,7 +1341,7 @@ __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 }
 
 /// Wrapped __cilkrts_hyper_alloc method for link-time interpositioning.
-CILKSAN_API __attribute__((weak)) void*
+CILKSAN_API void*
 __real___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
   return __cilkrts_hyper_alloc(ignored, bytes);
 }
@@ -1339,7 +1359,7 @@ void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 typedef void (*hyper_dealloc_t)(void *, void *);
 static hyper_dealloc_t dl___cilkrts_hyper_dealloc = NULL;
 
-CILKSAN_API __attribute__((weak)) void
+CILKSAN_API void
 __cilkrts_hyper_dealloc(void *ignored, void *view) {
   START_DL_INTERPOSER(__cilkrts_hyper_dealloc, hyper_dealloc_t);
 
@@ -1353,7 +1373,7 @@ __cilkrts_hyper_dealloc(void *ignored, void *view) {
 }
 
 /// Wrapped __cilkrts_hyper_alloc method for link-time interpositioning.
-CILKSAN_API __attribute__((weak)) void
+CILKSAN_API void
 __real___cilkrts_hyper_dealloc(void *ignored, void *view) {
   __cilkrts_hyper_dealloc(ignored, view);
 }

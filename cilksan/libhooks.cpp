@@ -9,8 +9,7 @@
 #include "driver.h"
 
 #define START_HOOK(call_id)                                                    \
-  cilksan_assert(TOOL_INITIALIZED);                                            \
-  if (!should_check())                                                         \
+  if (!TOOL_INITIALIZED || !should_check())                                    \
     return;                                                                    \
   if (__builtin_expect(!call_pc[call_id], false))                              \
     call_pc[call_id] = CALLERPC;                                               \
@@ -67,6 +66,9 @@ static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
 CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
                                         const csi_id_t func_id,
                                         unsigned MAAP_count) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check())
     return;
@@ -245,6 +247,9 @@ CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
                                        const csi_id_t func_id,
                                        unsigned MAAP_count,
                                        const call_prop_t prop, void *sp) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check())
     return;
@@ -278,6 +283,9 @@ CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
                                       const csi_id_t func_id,
                                       unsigned MAAP_count,
                                       const call_prop_t prop, va_list ap) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check())
     return;
@@ -289,6 +297,9 @@ CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
 CILKSAN_API void __csan_llvm_va_end(const csi_id_t call_id,
                                     const csi_id_t func_id, unsigned MAAP_count,
                                     const call_prop_t prop, va_list ap) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   cilksan_assert(TOOL_INITIALIZED);
   if (!should_check())
     return;
@@ -339,6 +350,9 @@ CILKSAN_API void
 __csan___cxa_atexit(const csi_id_t call_id, const csi_id_t func_id,
                     unsigned MAAP_count, const call_prop_t prop, int result,
                     void (*func)(void *), void *arg, void *dso_handle) {
+  if (!TOOL_INITIALIZED)
+    return;
+
   cilksan_assert(TOOL_INITIALIZED);
 
   for (unsigned i = 0; i < MAAP_count; ++i)

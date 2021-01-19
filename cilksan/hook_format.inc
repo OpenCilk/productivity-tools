@@ -328,7 +328,6 @@ static void scanf_common(csi_id_t call_id, unsigned &MAAP_count, int n_inputs,
   CHECK_GT(n_inputs, 0);
   const char *p = format;
 
-  // COMMON_INTERCEPTOR_READ_RANGE(ctx, format, internal_strlen(format) + 1);
   CHECK_READ_RANGE(format, strlen(format) + 1);
 
   while (*p) {
@@ -351,8 +350,8 @@ static void scanf_common(csi_id_t call_id, unsigned &MAAP_count, int n_inputs,
     int size = scanf_get_value_size(&dir);
     if (size == FSS_INVALID) {
       fprintf(err_io,
-              "Cilksan Warning: Unexpected format specifier in scanf hook: ",
-              "%.*s\n", dir.end - dir.begin, dir.begin);
+              "Cilksan Warning: Unexpected format specifier in scanf hook: "
+              "%.*s\n", (int)(dir.end - dir.begin), dir.begin);
       break;
     }
     void *argp = va_arg(aq, void *);
@@ -366,7 +365,6 @@ static void scanf_common(csi_id_t call_id, unsigned &MAAP_count, int n_inputs,
       // FIXME: actually use wcslen() to calculate it.
       size = 0;
     }
-    // COMMON_INTERCEPTOR_WRITE_RANGE(ctx, argp, size);
     CHECK_WRITE_RANGE(argp, size);
   }
 }
@@ -491,7 +489,7 @@ static int printf_get_value_size(PrintfDirective *dir) {
         fprintf(err_io,                                                        \
                 "Cilksan Warning: Unexpected floating-point arg size"          \
                 " in printf hook: %d\n",                                       \
-                size);                                                         \
+                (int)size);                                                    \
         return;                                                                \
       }                                                                        \
     } else {                                                                   \
@@ -508,7 +506,7 @@ static int printf_get_value_size(PrintfDirective *dir) {
         fprintf(err_io,                                                        \
                 "Cilksan Warning: Unexpected arg size"                         \
                 " in printf hook: %d\n",                                       \
-                size);                                                         \
+                (int)size);                                                    \
         return;                                                                \
       }                                                                        \
     }                                                                          \
@@ -522,8 +520,6 @@ static int printf_get_value_size(PrintfDirective *dir) {
 // Process format string and va_list, and report all load ranges.
 static void printf_common(csi_id_t call_id, unsigned &MAAP_count,
                           const char *format, va_list aq) {
-  // COMMON_INTERCEPTOR_READ_RANGE(ctx, format, internal_strlen(format) + 1);
-  // check_read_bytes(call_id, MAAPVal, format, strlen(format) + 1);
   CHECK_READ_RANGE(format, strlen(format) + 1);
 
   const char *p = format;
@@ -561,12 +557,11 @@ static void printf_common(csi_id_t call_id, unsigned &MAAP_count,
         fprintf(err_io,
                 "Cilksan Warning: Unexpected format specifier in printf "
                 "hook: %.*s (reported once per process)\n",
-                dir.end - dir.begin, dir.begin);
+                (int)(dir.end - dir.begin), dir.begin);
       break;
     }
     if (dir.convSpecifier == 'n') {
       void *argp = va_arg(aq, void *);
-      // COMMON_INTERCEPTOR_WRITE_RANGE(ctx, argp, size);
       CHECK_WRITE_RANGE(argp, size);
       continue;
     } else if (size == FSS_STRLEN) {
@@ -583,14 +578,12 @@ static void printf_common(csi_id_t call_id, unsigned &MAAP_count,
           // Whole string will be accessed.
           size = strlen((const char *)argp) + 1;
         }
-        // COMMON_INTERCEPTOR_READ_RANGE(ctx, argp, size);
         CHECK_READ_RANGE(argp, size);
       }
     } else if (size == FSS_WCSLEN) {
       if (void *argp = va_arg(aq, void *)) {
         // FIXME: Properly support wide-character strings (via wcsrtombs).
         size = 0;
-        // COMMON_INTERCEPTOR_READ_RANGE(ctx, argp, size);
         CHECK_READ_RANGE(argp, size);
       }
     } else {
