@@ -1076,8 +1076,12 @@ void CilkSanImpl_t::init() {
   // Enable checking of atomics if requested
   {
     char *e = getenv("CILKSAN_CHECK_ATOMICS");
-    if (e && 0 != strcmp(e, "0"))
-      check_atomics = true;
+    if (e) {
+      if (0 == strcmp(e, "0"))
+        check_atomics = false;
+      else
+        check_atomics = true;
+    }
   }
 
   std::cout << "Running Cilksan race detector.\n";

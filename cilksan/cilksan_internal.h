@@ -263,7 +263,7 @@ private:
 
   // Flag for whether to check whether a memory address that is accessed by an
   // atomic operation is always accessed by atomic operations
-  bool check_atomics = false;
+  bool check_atomics = true;
 
   // Set of locks held at the current instruction
   bool lockset_empty = true;
