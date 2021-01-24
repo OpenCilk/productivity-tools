@@ -284,6 +284,9 @@ CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
       enable_instrumentation();
       // Note that we start executing the program in series.
       parallel_execution.push_back(0);
+      // Push a default value of 0 onto the MAAP_counts stack, in case this
+      // function contains get_MAAP calls.
+      MAAP_counts.push_back(0);
     }
   }
 
