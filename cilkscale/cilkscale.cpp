@@ -243,11 +243,15 @@ void __csi_func_entry(const csi_id_t func_id, const func_prop_t prop) {
   bottom.contin_bspan += strand_time;
 
   shadow_stack_frame_t &p_bottom = stack.peek_bot();
+  cilk_time_t p_contin_work = p_bottom.contin_work;
+  cilk_time_t p_contin_span = p_bottom.contin_span;
+  cilk_time_t p_contin_bspan = p_bottom.contin_bspan;
+
   // Push new frame onto the stack
   shadow_stack_frame_t &c_bottom = stack.push(frame_type::SPAWNER);
-  c_bottom.contin_work = p_bottom.contin_work;
-  c_bottom.contin_span = p_bottom.contin_span;
-  c_bottom.contin_bspan = p_bottom.contin_bspan;
+  c_bottom.contin_work = p_contin_work;
+  c_bottom.contin_span = p_contin_span;
+  c_bottom.contin_bspan = p_contin_bspan;
 
   // stack.start.gettime();
   // Because of the high overhead of calling gettime(), especially compared to
@@ -324,11 +328,15 @@ void __csi_task(const csi_id_t task_id, const csi_id_t detach_id,
 #endif
 
   shadow_stack_frame_t &p_bottom = stack.peek_bot();
+  cilk_time_t p_contin_work = p_bottom.contin_work;
+  cilk_time_t p_contin_span = p_bottom.contin_span;
+  cilk_time_t p_contin_bspan = p_bottom.contin_bspan;
+
   // Push new frame onto the stack.
   shadow_stack_frame_t &c_bottom = stack.push(frame_type::HELPER);
-  c_bottom.contin_work = p_bottom.contin_work;
-  c_bottom.contin_span = p_bottom.contin_span;
-  c_bottom.contin_bspan = p_bottom.contin_bspan;
+  c_bottom.contin_work = p_contin_work;
+  c_bottom.contin_span = p_contin_span;
+  c_bottom.contin_bspan = p_contin_bspan;
 
   stack.start.gettime();
 }
