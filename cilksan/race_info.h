@@ -348,7 +348,7 @@ public:
   }
 
   // Destructor
-  ~AccessLoc_t() {}
+  ~AccessLoc_t() = default;
 
   // Accessors
   inline csi_id_t getID() const { return acc_loc; }

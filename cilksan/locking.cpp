@@ -165,3 +165,51 @@ CILKSAN_API int pthread_once(pthread_once_t *once_control,
   enable_checking();
   return result;
 }
+
+
+typedef struct guard_t guard_t;
+
+CILKSAN_API void __csan___cxa_guard_abort(const csi_id_t call_id,
+                                          const csi_id_t func_id,
+                                          unsigned MAAP_count,
+                                          const call_prop_t prop,
+                                          guard_t *guard) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  // Interpositioning of the pthread routines should handle the semantics of
+  // __cxa_guard_abort.
+}
+
+CILKSAN_API void __csan___cxa_guard_acquire(const csi_id_t call_id,
+                                            const csi_id_t func_id,
+                                            unsigned MAAP_count,
+                                            const call_prop_t prop, int result,
+                                            guard_t *guard) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  // Interpositioning of the pthread routines should handle the semantics of
+  // __cxa_guard_acquire.
+}
+
+CILKSAN_API void __csan___cxa_guard_release(const csi_id_t call_id,
+                                            const csi_id_t func_id,
+                                            unsigned MAAP_count,
+                                            const call_prop_t prop,
+                                            guard_t *guard) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  // Interpositioning of the pthread routines should handle the semantics of
+  // __cxa_guard_release.
+}

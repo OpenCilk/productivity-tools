@@ -12,6 +12,7 @@
 #include "stack.h"
 
 #define CILKSAN_API extern "C" __attribute__((visibility("default")))
+#define CILKSAN_WEAK __attribute__((weak))
 #define CALLERPC ((uintptr_t)__builtin_return_address(0))
 
 // FILE io used to print error messages
