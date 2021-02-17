@@ -35,6 +35,7 @@
 #endif
 
 // defined in libopencilk
+extern "C" int __cilkrts_is_initialized(void);
 extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
 
 ///////////////////////////////////////////////////////////////////////////
@@ -66,24 +67,35 @@ public:
 };
 
 // Top-level Cilkscale tool.
-static CilkscaleImpl_t tool;
+static CilkscaleImpl_t *create_tool(void) {
+  if (!__cilkrts_is_initialized())
+    // If the OpenCilk runtime is not yet initialized, then csi_init will
+    // register a call to init_tool to initialize the tool after the runtime is
+    // initialized.
+    return nullptr;
+
+  // Otherwise, ordered dynamic initalization should ensure that it's safe to
+  // create the tool.
+  return new CilkscaleImpl_t();
+}
+static CilkscaleImpl_t *tool = create_tool();
 
 // Macro to access the correct shadow-stack data structure, based on the
 // initialized state of the tool.
 #if SERIAL_TOOL
-#define STACK (*tool.shadow_stack)
+#define STACK (*tool->shadow_stack)
 #else
-#define STACK (tool.shadow_stack->get_view())
+#define STACK (tool->shadow_stack->get_view())
 #endif
 
 // Macro to use the correct output stream, based on the initialized state of the
 // tool.
 #if SERIAL_TOOL
-#define OUTPUT ((tool.outf.is_open()) ? (tool.outf) : (tool.outs))
+#define OUTPUT ((tool->outf.is_open()) ? (tool->outf) : (tool->outs))
 #else
 #define OUTPUT                                                                 \
-  ((tool.outf_red) ? (**(tool.outf_red))                                       \
-                   : ((tool.outf.is_open()) ? (tool.outf) : (tool.outs)))
+  ((tool->outf_red) ? (**(tool->outf_red))                                     \
+                    : ((tool->outf.is_open()) ? (tool->outf) : (tool->outs)))
 #endif
 
 static bool TOOL_INITIALIZED = false;
@@ -139,7 +151,18 @@ static void print_analysis(void) {
 // Ensure that this tool is run serially
 static inline void ensure_serial_tool(void) {
   fprintf(stderr, "Forcing CILK_NWORKERS=1.\n");
-  __cilkrts_internal_set_nworkers(1);
+  if (__cilkrts_is_initialized()) {
+    __cilkrts_internal_set_nworkers(1);
+  } else {
+    // Force the number of Cilk workers to be 1.
+    char *e = getenv("CILK_NWORKERS");
+    if (!e || 0 != strcmp(e, "1")) {
+      if (setenv("CILK_NWORKERS", "1", 1)) {
+        fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");
+        exit(1);
+      }
+    }
+  }
 }
 #endif
 
@@ -155,13 +178,17 @@ CilkscaleImpl_t::CilkscaleImpl_t() {
     outf.open(envstr);
 
 #if !SERIAL_TOOL
-  outf_red = new cilk::reducer<cilk::op_ostream>(OUTPUT);
+  outf_red =
+      new cilk::reducer<cilk::op_ostream>((outf.is_open() ? outf : outs));
 #endif
 
-  TOOL_INITIALIZED = true;
-
-  STACK.push(frame_type::SPAWNER);
-  STACK.start.gettime();
+#if SERIAL_TOOL
+  shadow_stack_t &stack = *shadow_stack;
+#else
+  shadow_stack_t &stack = shadow_stack->get_view();
+#endif
+  stack.push(frame_type::SPAWNER);
+  stack.start.gettime();
 }
 
 CilkscaleImpl_t::~CilkscaleImpl_t() {
@@ -179,23 +206,45 @@ CilkscaleImpl_t::~CilkscaleImpl_t() {
     outf.close();
   delete shadow_stack;
 
+#if !SERIAL_TOOL
   delete outf_red;
   outf_red = nullptr;
-
-  TOOL_INITIALIZED = false;
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////
 // Hooks for operating the tool.
+
+// Custom function to intialize tool after the OpenCilk runtime is initialized.
+static void init_tool(void) {
+  assert(nullptr == tool && "Tool already initialized");
+  tool = new CilkscaleImpl_t();
+}
+
+static void destroy_tool(void) {
+  if (tool) {
+    delete tool;
+    tool = nullptr;
+  }
+
+  TOOL_INITIALIZED = false;
+}
 
 CILKTOOL_API void __csi_init() {
 #if TRACE_CALLS
   fprintf(stderr, "__csi_init()\n");
 #endif
 
+  if (!__cilkrts_is_initialized())
+    __cilkrts_atinit(init_tool);
+
+  __cilkrts_atexit(destroy_tool);
+
 #if SERIAL_TOOL
   ensure_serial_tool();
 #endif
+
+  TOOL_INITIALIZED = true;
 }
 
 CILKTOOL_API void __csi_unit_init(const char *const file_name,

@@ -93,24 +93,35 @@ public:
 };
 
 // Top-level benchmarking tool.
-static BenchmarkImpl_t tool;
+static BenchmarkImpl_t *create_tool(void) {
+  if (!__cilkrts_is_initialized())
+    // If the OpenCilk runtime is not yet initialized, then csi_init will
+    // register a call to init_tool to initialize the tool after the runtime is
+    // initialized.
+    return nullptr;
+
+  // Otherwise, ordered dynamic initalization should ensure that it's safe to
+  // create the tool.
+  return new BenchmarkImpl_t();
+}
+static BenchmarkImpl_t *tool = create_tool();
 
 // Macro to access the correct timer, based on the initialized state of the
 // tool.
 #if SERIAL_TOOL
-#define TIMER (tool.timer)
+#define TIMER (tool->timer)
 #else
-#define TIMER (tool.timer.get_view())
+#define TIMER (tool->timer.get_view())
 #endif
 
 // Macro to access the correct output stream, based on the initialized state of
 // the tool.
 #if SERIAL_TOOL
-#define OUTPUT ((tool.outf.is_open()) ? (tool.outf) : (tool.outs))
+#define OUTPUT ((tool->outf.is_open()) ? (tool->outf) : (tool->outs))
 #else
 #define OUTPUT                                                                 \
-  ((tool.outf_red) ? (**(tool.outf_red))                                       \
-                   : ((tool.outf.is_open()) ? (tool.outf) : (tool.outs)))
+  ((tool->outf_red) ? (**(tool->outf_red))                                     \
+                    : ((tool->outf.is_open()) ? (tool->outf) : (tool->outs)))
 #endif
 
 static bool TOOL_INITIALIZED = false;
@@ -142,7 +153,7 @@ static void print_analysis(void) {
   assert(TOOL_INITIALIZED);
 
   ensure_header(OUTPUT);
-  print_results(OUTPUT, "", elapsed_time(&tool.stop, &tool.start));
+  print_results(OUTPUT, "", elapsed_time(&tool->stop, &tool->start));
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -153,7 +164,11 @@ BenchmarkImpl_t::BenchmarkImpl_t() {
   if (envstr)
     outf.open(envstr);
 
-  TOOL_INITIALIZED = true;
+#if !SERIAL_TOOL
+  outf_red =
+      new cilk::reducer<cilk::op_ostream>((outf.is_open() ? outf : outs));
+#endif
+
   start.gettime();
 }
 
@@ -168,17 +183,37 @@ BenchmarkImpl_t::~BenchmarkImpl_t() {
   delete outf_red;
   outf_red = nullptr;
 #endif
-
-  TOOL_INITIALIZED = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////
 // Hooks for operating the tool.
 
+// Custom function to intialize tool after the OpenCilk runtime is initialized.
+static void init_tool(void) {
+  assert(nullptr == tool && "Tool already initialized");
+  tool = new BenchmarkImpl_t();
+}
+
+static void destroy_tool(void) {
+  if (tool) {
+    delete tool;
+    tool = nullptr;
+  }
+
+  TOOL_INITIALIZED = false;
+}
+
 CILKTOOL_API void __csi_init() {
 #if TRACE_CALLS
   fprintf(stderr, "__csi_init()\n");
 #endif
+
+  if (!__cilkrts_is_initialized())
+    __cilkrts_atinit(init_tool);
+
+  __cilkrts_atexit(destroy_tool);
+
+  TOOL_INITIALIZED = true;
 }
 
 CILKTOOL_API void __csi_unit_init(const char *const file_name,
@@ -190,8 +225,11 @@ CILKTOOL_API void __csi_unit_init(const char *const file_name,
 // Probes and associated routines
 
 CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
+  if (!tool)
+    return wsp_zero();
+
   TIMER.gettime();
-  duration_t time_since_start = elapsed_time(&TIMER, &tool.start);
+  duration_t time_since_start = elapsed_time(&TIMER, &tool->start);
   wsp_t result = { cilk_time_t(time_since_start).get_raw_duration(), 0, 0 };
 
   return result;
