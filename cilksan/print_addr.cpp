@@ -29,6 +29,8 @@ typedef enum {
   STORE_ACC,
   CALL_LOAD_ACC,
   CALL_STORE_ACC,
+  ALLOC_LOAD_ACC,
+  ALLOC_STORE_ACC,
   FREE_ACC,
   REALLOC_ACC,
   STACK_FREE_ACC,
@@ -148,10 +150,12 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
   switch (type) {
   case LOAD_ACC:
   case CALL_LOAD_ACC:
+  case ALLOC_LOAD_ACC:
     convert << "   Read ";
     break;
   case STORE_ACC:
   case CALL_STORE_ACC:
+  case ALLOC_STORE_ACC:
     convert << "  Write ";
     break;
   case FREE_ACC:
@@ -175,10 +179,12 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
       convert << std::hex << store_pc[acc_id];
       break;
     case CALL_LOAD_ACC:
-      convert << std::hex << call_pc[acc_id];
-      break;
     case CALL_STORE_ACC:
       convert << std::hex << call_pc[acc_id];
+      break;
+    case ALLOC_LOAD_ACC:
+    case ALLOC_STORE_ACC:
+      convert << std::hex << allocfn_pc[acc_id];
       break;
     case FREE_ACC:
       convert << std::hex << free_pc[acc_id];
@@ -204,10 +210,12 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
       src_loc = __csan_get_store_source_loc(acc_id);
       break;
     case CALL_LOAD_ACC:
-      src_loc = __csan_get_call_source_loc(acc_id);
-      break;
     case CALL_STORE_ACC:
       src_loc = __csan_get_call_source_loc(acc_id);
+      break;
+    case ALLOC_LOAD_ACC:
+    case ALLOC_STORE_ACC:
+      src_loc = __csan_get_allocfn_source_loc(acc_id);
       break;
     case FREE_ACC:
       src_loc = __csan_get_free_source_loc(acc_id);
@@ -233,7 +241,7 @@ get_info_on_mem_access(const csi_id_t acc_id, ACC_TYPE type, uint8_t endpoint,
     case STORE_ACC:
       obj_src_loc = __csan_get_store_obj_source_loc(acc_id);
       break;
-    // TODO: Track objects modified by free's and realloc's.
+    // TODO: Track objects modified by allocfn's, free's, and realloc's.
     default:
       break;
     }
@@ -371,6 +379,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     case MAType_t::FNRW:
       first_acc_type = CALL_LOAD_ACC;
       break;
+    case MAType_t::ALLOC:
+      first_acc_type = ALLOC_LOAD_ACC;
+      break;
     default:
       first_acc_type = LOAD_ACC;
       break;
@@ -378,6 +389,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     switch (second_inst.getType()) {
     case MAType_t::FNRW:
       second_acc_type = CALL_STORE_ACC;
+      break;
+    case MAType_t::ALLOC:
+      second_acc_type = ALLOC_STORE_ACC;
       break;
     case MAType_t::FREE:
       second_acc_type = FREE_ACC;
@@ -398,6 +412,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     case MAType_t::FNRW:
       first_acc_type = CALL_STORE_ACC;
       break;
+    case MAType_t::ALLOC:
+      first_acc_type = ALLOC_STORE_ACC;
+      break;
     case MAType_t::FREE:
       first_acc_type = FREE_ACC;
       break;
@@ -414,6 +431,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     switch (second_inst.getType()) {
     case MAType_t::FNRW:
       second_acc_type = CALL_STORE_ACC;
+      break;
+    case MAType_t::ALLOC:
+      second_acc_type = ALLOC_STORE_ACC;
       break;
     case MAType_t::FREE:
       second_acc_type = FREE_ACC;
@@ -434,6 +454,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     case MAType_t::FNRW:
       first_acc_type = CALL_STORE_ACC;
       break;
+    case MAType_t::ALLOC:
+      first_acc_type = ALLOC_STORE_ACC;
+      break;
     case MAType_t::FREE:
       first_acc_type = FREE_ACC;
       break;
@@ -450,6 +473,9 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
     switch (second_inst.getType()) {
     case MAType_t::FNRW:
       second_acc_type = CALL_LOAD_ACC;
+      break;
+    case MAType_t::ALLOC:
+      second_acc_type = ALLOC_LOAD_ACC;
       break;
     default:
       second_acc_type = LOAD_ACC;

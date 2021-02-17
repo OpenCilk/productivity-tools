@@ -571,7 +571,7 @@ void CilkSanImpl_t::do_leave(unsigned sync_reg) {
 }
 
 // called by do_read and do_write.
-template <bool is_read>
+template <bool is_read, MAType_t type>
 __attribute__((always_inline)) void
 CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                  size_t mem_size, unsigned alignment) {
@@ -587,20 +587,20 @@ CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
     // and if that process discovers unoccupied entries, perform the check.
     if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
       FrameData_t *f = frame_stack.head();
-      check_races_and_update_fast<is_read>(acc_id, MAType_t::RW, addr, mem_size,
-                                           f, *shadow_memory);
+      check_races_and_update_fast<is_read>(acc_id, type, addr, mem_size, f,
+                                           *shadow_memory);
     }
     // Return early.
     return;
   }
 
   FrameData_t *f = frame_stack.head();
-  check_races_and_update<is_read>(acc_id, MAType_t::RW, addr, mem_size, f,
+  check_races_and_update<is_read>(acc_id, type, addr, mem_size, f,
                                   *shadow_memory);
 }
 
 // called by do_locked_read and do_locked_write.
-template <bool is_read>
+template <bool is_read, MAType_t type>
 void CilkSanImpl_t::record_locked_mem_helper(const csi_id_t acc_id,
                                              uintptr_t addr, size_t mem_size,
                                              unsigned alignment) {
@@ -618,76 +618,16 @@ void CilkSanImpl_t::record_locked_mem_helper(const csi_id_t acc_id,
   //   // and if that process discovers unoccupied entries, perform the check.
   //   if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
   //     FrameData_t *f = frame_stack.head();
-  //     check_races_and_update_fast<is_read>(acc_id, MAType_t::RW, addr, mem_size,
-  //                                          f, *shadow_memory);
+  //     check_races_and_update_fast<is_read>(acc_id, type, addr, mem_size, f,
+  //                                          *shadow_memory);
   //   }
   //   // Return early.
   //   return;
   // }
 
   FrameData_t *f = frame_stack.head();
-  check_data_races_and_update<is_read>(acc_id, MAType_t::RW, addr, mem_size, f,
-                                       lockset, *shadow_memory);
-}
-
-// called by do_read and do_write.
-template <bool is_read>
-__attribute__((always_inline)) void
-CilkSanImpl_t::record_func_mem_helper(const csi_id_t acc_id, uintptr_t addr,
-                                      size_t mem_size, unsigned alignment) {
-  // Do nothing for 0-byte accesses
-  if (!mem_size)
-    return;
-
-  // Use fast path for small, statically aligned accesses.
-  if (alignment &&
-      alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-      mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
-    // We're committed to using the fast-path check.  Update the occupied bits,
-    // and if that process discovers unoccupied entries, perform the check.
-    if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
-      FrameData_t *f = frame_stack.head();
-      check_races_and_update_fast<is_read>(acc_id, MAType_t::FNRW, addr,
-                                           mem_size, f, *shadow_memory);
-    }
-    // Return early.
-    return;
-  }
-
-  FrameData_t *f = frame_stack.head();
-  check_races_and_update<is_read>(acc_id, MAType_t::FNRW, addr, mem_size, f,
-                                  *shadow_memory);
-}
-
-// called by do_locked_read and do_locked_write.
-template <bool is_read>
-void CilkSanImpl_t::record_locked_func_mem_helper(const csi_id_t acc_id,
-                                                  uintptr_t addr, size_t mem_size,
-                                                  unsigned alignment) {
-  // Do nothing for 0-byte accesses
-  if (!mem_size)
-    return;
-
-  // TODO: Add a fast path for handling locked accesses.
-
-  // // Use fast path for small, statically aligned accesses.
-  // if (alignment &&
-  //     alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-  //     mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
-  //   // We're committed to using the fast-path check.  Update the occupied bits,
-  //   // and if that process discovers unoccupied entries, perform the check.
-  //   if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
-  //     FrameData_t *f = frame_stack.head();
-  //     check_races_and_update_fast<is_read>(acc_id, MAType_t::FNRW, addr,
-  //                                          mem_size, f, *shadow_memory);
-  //   }
-  //   // Return early.
-  //   return;
-  // }
-
-  FrameData_t *f = frame_stack.head();
-  check_data_races_and_update<is_read>(acc_id, MAType_t::FNRW, addr, mem_size,
-                                       f, lockset, *shadow_memory);
+  check_data_races_and_update<is_read>(acc_id, type, addr, mem_size, f, lockset,
+                                       *shadow_memory);
 }
 
 void CilkSanImpl_t::record_free(uintptr_t addr, size_t mem_size,
@@ -834,6 +774,7 @@ void check_data_races_and_update(const csi_id_t acc_id, MAType_t type,
                                            lockset, shadow_memory);
 }
 
+template <MAType_t type>
 void CilkSanImpl_t::do_read(const csi_id_t load_id, uintptr_t addr,
                             size_t mem_size, unsigned alignment) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
@@ -847,14 +788,16 @@ void CilkSanImpl_t::do_read(const csi_id_t load_id, uintptr_t addr,
   if (on_stack)
     advance_stack_frame(addr);
 
-  record_mem_helper<true>(load_id, addr, mem_size, alignment);
+  record_mem_helper<true, type>(load_id, addr, mem_size, alignment);
 }
 
+template <MAType_t type>
 void CilkSanImpl_t::do_write(const csi_id_t store_id, uintptr_t addr,
                              size_t mem_size, unsigned alignment) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
-  DBG_TRACE(DEBUG_MEMORY, "record write %ld: %lu bytes at addr %p and rip %p.\n",
-            store_id, mem_size, addr, store_pc[store_id]);
+  DBG_TRACE(DEBUG_MEMORY,
+            "record write %ld: %lu bytes at addr %p and rip %p.\n", store_id,
+            mem_size, addr, store_pc[store_id]);
   if (collect_stats)
     collect_write_stat(mem_size);
 
@@ -862,9 +805,33 @@ void CilkSanImpl_t::do_write(const csi_id_t store_id, uintptr_t addr,
   if (on_stack)
     advance_stack_frame(addr);
 
-  record_mem_helper<false>(store_id, addr, mem_size, alignment);
+  record_mem_helper<false, type>(store_id, addr, mem_size, alignment);
 }
 
+template void CilkSanImpl_t::do_read<MAType_t::RW>(const csi_id_t id,
+                                                   uintptr_t addr, size_t len,
+                                                   unsigned alignment);
+template void CilkSanImpl_t::do_read<MAType_t::FNRW>(const csi_id_t id,
+                                                     uintptr_t addr, size_t len,
+                                                     unsigned alignment);
+template void CilkSanImpl_t::do_read<MAType_t::ALLOC>(const csi_id_t id,
+                                                      uintptr_t addr,
+                                                      size_t len,
+                                                      unsigned alignment);
+
+template void CilkSanImpl_t::do_write<MAType_t::RW>(const csi_id_t id,
+                                                    uintptr_t addr, size_t len,
+                                                    unsigned alignment);
+template void CilkSanImpl_t::do_write<MAType_t::FNRW>(const csi_id_t id,
+                                                      uintptr_t addr,
+                                                      size_t len,
+                                                      unsigned alignment);
+template void CilkSanImpl_t::do_write<MAType_t::ALLOC>(const csi_id_t id,
+                                                       uintptr_t addr,
+                                                       size_t len,
+                                                       unsigned alignment);
+
+template <MAType_t type>
 void CilkSanImpl_t::do_locked_read(const csi_id_t load_id, uintptr_t addr,
                                    size_t mem_size, unsigned alignment) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
@@ -879,9 +846,10 @@ void CilkSanImpl_t::do_locked_read(const csi_id_t load_id, uintptr_t addr,
   if (on_stack)
     advance_stack_frame(addr);
 
-  record_locked_mem_helper<true>(load_id, addr, mem_size, alignment);
+  record_locked_mem_helper<true, type>(load_id, addr, mem_size, alignment);
 }
 
+template <MAType_t type>
 void CilkSanImpl_t::do_locked_write(const csi_id_t store_id, uintptr_t addr,
                                     size_t mem_size, unsigned alignment) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
@@ -895,73 +863,22 @@ void CilkSanImpl_t::do_locked_write(const csi_id_t store_id, uintptr_t addr,
   if (on_stack)
     advance_stack_frame(addr);
 
-  record_locked_mem_helper<false>(store_id, addr, mem_size, alignment);
+  record_locked_mem_helper<false, type>(store_id, addr, mem_size, alignment);
 }
 
-void CilkSanImpl_t::do_func_read(const csi_id_t call_id, uintptr_t addr,
-                                 size_t mem_size, unsigned alignment) {
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
-  DBG_TRACE(DEBUG_MEMORY, "record read %lu: %lu bytes at addr %p and rip %p.\n",
-            call_id, mem_size, addr,
-            (call_id != UNKNOWN_CSI_ID) ? call_pc[call_id] : 0);
-  if (collect_stats)
-    collect_read_stat(mem_size);
+template void CilkSanImpl_t::do_locked_read<MAType_t::RW>(
+    const csi_id_t load_id, uintptr_t addr, size_t len, unsigned alignment);
+template void CilkSanImpl_t::do_locked_read<MAType_t::FNRW>(
+    const csi_id_t load_id, uintptr_t addr, size_t len, unsigned alignment);
+template void CilkSanImpl_t::do_locked_read<MAType_t::ALLOC>(
+    const csi_id_t load_id, uintptr_t addr, size_t len, unsigned alignment);
 
-  bool on_stack = is_on_stack(addr);
-  if (on_stack)
-    advance_stack_frame(addr);
-
-  record_func_mem_helper<true>(call_id, addr, mem_size, alignment);
-}
-
-void CilkSanImpl_t::do_func_write(const csi_id_t call_id, uintptr_t addr,
-                                  size_t mem_size, unsigned alignment) {
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
-  DBG_TRACE(DEBUG_MEMORY,
-            "record write %ld: %lu bytes at addr %p and rip %p.\n", call_id,
-            mem_size, addr, call_pc[call_id]);
-  if (collect_stats)
-    collect_write_stat(mem_size);
-
-  bool on_stack = is_on_stack(addr);
-  if (on_stack)
-    advance_stack_frame(addr);
-
-  record_func_mem_helper<false>(call_id, addr, mem_size, alignment);
-}
-
-void CilkSanImpl_t::do_locked_func_read(const csi_id_t call_id, uintptr_t addr,
-                                        size_t mem_size, unsigned alignment) {
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
-  DBG_TRACE(DEBUG_MEMORY,
-            "record read %lu: %lu bytes at addr %p and rip %p, locked.\n",
-            call_id, mem_size, addr,
-            (call_id != UNKNOWN_CSI_ID) ? call_pc[call_id] : 0);
-  if (collect_stats)
-    collect_read_stat(mem_size);
-
-  bool on_stack = is_on_stack(addr);
-  if (on_stack)
-    advance_stack_frame(addr);
-
-  record_locked_func_mem_helper<true>(call_id, addr, mem_size, alignment);
-}
-
-void CilkSanImpl_t::do_locked_func_write(const csi_id_t call_id, uintptr_t addr,
-                                         size_t mem_size, unsigned alignment) {
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
-  DBG_TRACE(DEBUG_MEMORY,
-            "record write %ld: %lu bytes at addr %p and rip %p, locked.\n",
-            call_id, mem_size, addr, call_pc[call_id]);
-  if (collect_stats)
-    collect_write_stat(mem_size);
-
-  bool on_stack = is_on_stack(addr);
-  if (on_stack)
-    advance_stack_frame(addr);
-
-  record_locked_func_mem_helper<false>(call_id, addr, mem_size, alignment);
-}
+template void CilkSanImpl_t::do_locked_write<MAType_t::RW>(
+    const csi_id_t store_id, uintptr_t addr, size_t len, unsigned alignment);
+template void CilkSanImpl_t::do_locked_write<MAType_t::FNRW>(
+    const csi_id_t store_id, uintptr_t addr, size_t len, unsigned alignment);
+template void CilkSanImpl_t::do_locked_write<MAType_t::ALLOC>(
+    const csi_id_t store_id, uintptr_t addr, size_t len, unsigned alignment);
 
 // clear the memory block at [start,start+size) (end is exclusive).
 void CilkSanImpl_t::clear_shadow_memory(size_t start, size_t size) {

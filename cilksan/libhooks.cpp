@@ -21,9 +21,10 @@ static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
                                     const void *ptr, size_t len) {
   if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
     if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_func_read(call_id, (uintptr_t)ptr, len, 0);
+      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
+                                                 0);
     } else {
-      CilkSanImpl.do_func_read(call_id, (uintptr_t)ptr, len, 0);
+      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
     }
   }
 }
@@ -32,9 +33,9 @@ static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
                                     uintptr_t ptr, size_t len) {
   if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
     if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_func_read(call_id, ptr, len, 0);
+      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, ptr, len, 0);
     } else {
-      CilkSanImpl.do_func_read(call_id, ptr, len, 0);
+      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, ptr, len, 0);
     }
   }
 }
@@ -45,9 +46,10 @@ static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
                                      const void *ptr, size_t len) {
   if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
     if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_func_write(call_id, (uintptr_t)ptr, len, 0);
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
+                                                  0);
     } else {
-      CilkSanImpl.do_func_write(call_id, (uintptr_t)ptr, len, 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
     }
   }
 }
@@ -56,9 +58,9 @@ static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
                                      uintptr_t ptr, size_t len) {
   if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
     if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_func_write(call_id, ptr, len, 0);
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, ptr, len, 0);
     } else {
-      CilkSanImpl.do_func_write(call_id, ptr, len, 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, ptr, len, 0);
     }
   }
 }
@@ -1560,15 +1562,15 @@ CILKSAN_API void __csan_gettimeofday(const csi_id_t call_id,
   // Record the memory write to tv
   if (checkMAAP(tv_MAAPVal, MAAP_t::Ref)) {
     if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_func_write(call_id, (uintptr_t)(&tv->tv_sec),
-                                       sizeof(tv->tv_sec), 0);
-      CilkSanImpl.do_locked_func_write(call_id, (uintptr_t)(&tv->tv_usec),
-                                       sizeof(tv->tv_usec), 0);
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(
+          call_id, (uintptr_t)(&tv->tv_sec), sizeof(tv->tv_sec), 0);
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(
+          call_id, (uintptr_t)(&tv->tv_usec), sizeof(tv->tv_usec), 0);
     } else {
-      CilkSanImpl.do_func_write(call_id, (uintptr_t)(&tv->tv_sec),
-                                sizeof(tv->tv_sec), 0);
-      CilkSanImpl.do_func_write(call_id, (uintptr_t)(&tv->tv_usec),
-                                sizeof(tv->tv_usec), 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, (uintptr_t)(&tv->tv_sec),
+                                           sizeof(tv->tv_sec), 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, (uintptr_t)(&tv->tv_usec),
+                                           sizeof(tv->tv_usec), 0);
     }
   }
 
