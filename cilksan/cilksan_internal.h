@@ -148,14 +148,13 @@ public:
   void do_leave(unsigned sync_reg);
 
   // Memory actions
-  void do_read(const csi_id_t load_id, uintptr_t addr, size_t len,
+  template <MAType_t type>
+  void do_read(const csi_id_t id, uintptr_t addr, size_t len,
                unsigned alignment);
-  void do_write(const csi_id_t store_id, uintptr_t addr, size_t len,
+  template <MAType_t type>
+  void do_write(const csi_id_t id, uintptr_t addr, size_t len,
                 unsigned alignment);
-  void do_func_read(const csi_id_t load_id, uintptr_t addr, size_t len,
-                    unsigned alignment);
-  void do_func_write(const csi_id_t store_id, uintptr_t addr, size_t len,
-                     unsigned alignment);
+
   void clear_shadow_memory(size_t start, size_t end);
   void record_alloc(size_t start, size_t size, csi_id_t alloca_id);
   void record_free(size_t start, size_t size, csi_id_t acc_id, MAType_t type);
@@ -171,34 +170,32 @@ public:
     lockset_empty = lockset.isEmpty();
   }
   inline bool locks_held() const { return !lockset_empty; }
+  template <MAType_t type>
   void do_locked_read(const csi_id_t load_id, uintptr_t addr, size_t len,
                       unsigned alignment);
+  template <MAType_t type>
   void do_locked_write(const csi_id_t store_id, uintptr_t addr, size_t len,
                        unsigned alignment);
   void do_atomic_read(const csi_id_t load_id, uintptr_t addr, size_t len,
                       unsigned alignment, LockID_t atomic_lock_id) {
     if (check_atomics) {
       lockset.insert(atomic_lock_id);
-      do_locked_read(load_id, addr, len, alignment);
+      do_locked_read<MAType_t::RW>(load_id, addr, len, alignment);
       lockset.remove(atomic_lock_id);
     } else {
-      do_read(load_id, addr, len, alignment);
+      do_read<MAType_t::RW>(load_id, addr, len, alignment);
     }
   }
   void do_atomic_write(const csi_id_t store_id, uintptr_t addr, size_t len,
                        unsigned alignment, LockID_t atomic_lock_id) {
     if (check_atomics) {
       lockset.insert(atomic_lock_id);
-      do_locked_write(store_id, addr, len, alignment);
+      do_locked_write<MAType_t::RW>(store_id, addr, len, alignment);
       lockset.remove(atomic_lock_id);
     } else {
-      do_write(store_id, addr, len, alignment);
+      do_write<MAType_t::RW>(store_id, addr, len, alignment);
     }
   }
-  void do_locked_func_read(const csi_id_t load_id, uintptr_t addr, size_t len,
-                           unsigned alignment);
-  void do_locked_func_write(const csi_id_t store_id, uintptr_t addr, size_t len,
-                            unsigned alignment);
 
   // Methods for recording and reporting races
   const call_stack_t &get_current_call_stack() const {
@@ -224,19 +221,12 @@ private:
   inline void enter_detach_child(unsigned num_sync_reg);
   inline void return_from_detach(unsigned sync_reg);
   inline void complete_sync(unsigned sync_reg);
-  template <bool is_read>
+  template <bool is_read, MAType_t type>
   inline void record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                 size_t mem_size, unsigned alignment);
-  template <bool is_read>
+  template <bool is_read, MAType_t type>
   inline void record_locked_mem_helper(const csi_id_t acc_id, uintptr_t addr,
                                        size_t mem_size, unsigned alignment);
-  template <bool is_read>
-  inline void record_func_mem_helper(const csi_id_t acc_id, uintptr_t addr,
-                                     size_t mem_size, unsigned alignment);
-  template <bool is_read>
-  inline void record_locked_func_mem_helper(const csi_id_t acc_id,
-                                            uintptr_t addr, size_t mem_size,
-                                            unsigned alignment);
   inline void print_stats();
   static bool ColorizeReports();
   static bool PauseOnRace();

@@ -687,9 +687,11 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
     return;
   }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
-    CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_locked_read<MAType_t::RW>(load_id, (uintptr_t)addr, size,
+                                             prop.alignment);
   else
-    CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_read<MAType_t::RW>(load_id, (uintptr_t)addr, size,
+                                      prop.alignment);
 }
 
 // Hook called for a "large" load instruction, e.g., due to a memory intrinsic.
@@ -723,9 +725,11 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     return;
   }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
-    CilkSanImpl.do_locked_read(load_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_locked_read<MAType_t::RW>(load_id, (uintptr_t)addr, size,
+                                             prop.alignment);
   else
-    CilkSanImpl.do_read(load_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_read<MAType_t::RW>(load_id, (uintptr_t)addr, size,
+                                      prop.alignment);
 }
 
 // Hook called for an ordinary store instruction.
@@ -759,10 +763,11 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
     return;
   }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
-    CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
-                                prop.alignment);
+    CilkSanImpl.do_locked_write<MAType_t::RW>(store_id, (uintptr_t)addr, size,
+                                              prop.alignment);
   else
-    CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_write<MAType_t::RW>(store_id, (uintptr_t)addr, size,
+                                       prop.alignment);
 }
 
 // Hook called for a "large" store instruction, e.g., due to a memory intrinsic.
@@ -796,10 +801,11 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     return;
   }
   if (__builtin_expect(CilkSanImpl.locks_held(), false))
-    CilkSanImpl.do_locked_write(store_id, (uintptr_t)addr, size,
-                                prop.alignment);
+    CilkSanImpl.do_locked_write<MAType_t::RW>(store_id, (uintptr_t)addr, size,
+                                              prop.alignment);
   else
-    CilkSanImpl.do_write(store_id, (uintptr_t)addr, size, prop.alignment);
+    CilkSanImpl.do_write<MAType_t::RW>(store_id, (uintptr_t)addr, size,
+                                       prop.alignment);
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -945,6 +951,117 @@ CILKSAN_API void __csan_alloc_posix_memalign(const csi_id_t allocfn_id,
   malloc_sizes.insert((uintptr_t)(*ptr), size);
   CilkSanImpl.record_alloc((size_t)(*ptr), size, 2 * allocfn_id + 1);
   CilkSanImpl.clear_shadow_memory((size_t)(*ptr), size);
+}
+
+CILKSAN_API void __csan_alloc_strdup(const csi_id_t allocfn_id,
+                                     const csi_id_t func_id,
+                                     unsigned MAAP_count,
+                                     const allocfn_prop_t prop, char *result,
+                                     const char *str) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+  if (__builtin_expect(!allocfn_pc[allocfn_id], false))
+    allocfn_pc[allocfn_id] = CALLERPC;
+  if (__builtin_expect(allocfn_prop[allocfn_id].allocfn_ty == uint8_t(-1),
+                       false))
+    allocfn_prop[allocfn_id] = prop;
+
+  MAAP_t str_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    str_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (nullptr == result)
+    // Nothing to do if the call failed.
+    return;
+
+  size_t size = strlen(str) + 1;
+
+  // Check the read of str
+  if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_read<MAType_t::ALLOC>(allocfn_id, (uintptr_t)str,
+                                                  size, 0);
+    } else {
+      CilkSanImpl.do_read<MAType_t::ALLOC>(allocfn_id, (uintptr_t)str, size, 0);
+    }
+  }
+
+  // Record the allocation
+  malloc_sizes.insert((uintptr_t)(*result), size);
+  CilkSanImpl.record_alloc((size_t)(*result), size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)(*result), size);
+
+  // Check the write to result
+  if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_write<MAType_t::ALLOC>(allocfn_id,
+                                                   (uintptr_t)result, size, 0);
+    } else {
+      CilkSanImpl.do_write<MAType_t::ALLOC>(allocfn_id, (uintptr_t)result, size,
+                                            0);
+    }
+  }
+}
+
+CILKSAN_API void __csan_alloc_strndup(const csi_id_t allocfn_id,
+                                      const csi_id_t func_id,
+                                      unsigned MAAP_count,
+                                      const allocfn_prop_t prop, char *result,
+                                      const char *str, size_t size) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+  if (__builtin_expect(!allocfn_pc[allocfn_id], false))
+    allocfn_pc[allocfn_id] = CALLERPC;
+  if (__builtin_expect(allocfn_prop[allocfn_id].allocfn_ty == uint8_t(-1),
+                       false))
+    allocfn_prop[allocfn_id] = prop;
+
+  MAAP_t str_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    str_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (nullptr == result)
+    // Nothing to do if the call failed.
+    return;
+
+  size_t result_size = strlen(result) + 1;
+
+  // Check the read of str
+  if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_read<MAType_t::ALLOC>(allocfn_id, (uintptr_t)str,
+                                                  result_size, 0);
+    } else {
+      CilkSanImpl.do_read<MAType_t::ALLOC>(allocfn_id, (uintptr_t)str,
+                                           result_size, 0);
+    }
+  }
+
+  // Record the allocation
+  malloc_sizes.insert((uintptr_t)(*result), result_size);
+  CilkSanImpl.record_alloc((size_t)(*result), result_size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)(*result), result_size);
+
+  // Check the write to result
+  if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_write<MAType_t::ALLOC>(
+          allocfn_id, (uintptr_t)result, result_size, 0);
+    } else {
+      CilkSanImpl.do_write<MAType_t::ALLOC>(allocfn_id, (uintptr_t)result,
+                                            result_size, 0);
+    }
+  }
 }
 
 // Hook called after any free or delete.
@@ -1200,7 +1317,8 @@ void *mmap(void *start, size_t len, int prot, int flags, int fd, off_t offset) {
     if (!(flags & MAP_ANONYMOUS))
       // This mmap is backed by a file.  Initialize the shadow memory with a
       // write to the page.
-      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len, 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(UNKNOWN_CSI_ID, (uintptr_t)r, len,
+                                           0);
   }
 
   return r;
@@ -1227,7 +1345,8 @@ void *mmap64(void *start, size_t len, int prot, int flags, int fd, off64_t offse
     if (!(flags & MAP_ANONYMOUS))
       // This mmap is backed by a file.  Initialize the shadow memory with a
       // write to the page.
-      CilkSanImpl.do_write(UNKNOWN_CSI_ID, (uintptr_t)r, len, 0);
+      CilkSanImpl.do_write<MAType_t::FNRW>(UNKNOWN_CSI_ID, (uintptr_t)r, len,
+                                           0);
   }
 
   return r;
