@@ -13,14 +13,25 @@
 #include "stack.h"
 #include "addrmap.h"
 
+// Raise a link-time error if the user attempts to use Cilksan with -static.
+//
+// This trick is copied from AddressSanitizer.  We only use this trick on Linux,
+// since static linking is not supported on MacOSX anyway.
+#ifdef __linux__
+#include <link.h>
+void *CilksanDoesNotSupportStaticLinkage() {
+  // This will fail to link with -static.
+  return &_DYNAMIC;  // defined in link.h
+}
+#endif // __linux__
+
 // FILE io used to print error messages
 FILE *err_io = stderr;
 
 // defined in libopencilk
+extern "C" int __cilkrts_is_initialized(void);
 extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
 extern "C" void __cilkrts_internal_set_force_reduce(unsigned int force_reduce);
-
-extern CilkSanImpl_t CilkSanImpl;
 
 // declared in cilksan.cpp
 extern uintptr_t stack_low_addr;
@@ -200,13 +211,32 @@ CilkSanImpl_t::~CilkSanImpl_t() {
 }
 
 static void init_internal() {
-  __cilkrts_internal_set_nworkers(1);
-  __cilkrts_internal_set_force_reduce(1);
+  if (__cilkrts_is_initialized()) {
+    __cilkrts_internal_set_nworkers(1);
+    __cilkrts_internal_set_force_reduce(1);
+  } else {
+    // Force the number of Cilk workers to be 1.
+    char *e = getenv("CILK_NWORKERS");
+    if (!e || 0 != strcmp(e, "1")) {
+      if (setenv("CILK_NWORKERS", "1", 1)) {
+        fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");
+        exit(1);
+      }
+    }
+
+    // Force reductions.
+    e = getenv("CILK_FORCE_REDUCE");
+    if (!e || 0 != strcmp(e, "1")) {
+      if (setenv("CILK_FORCE_REDUCE", "1", 1)) {
+        fprintf(err_io, "Error setting CILKS_FORCE_REDUCE to be 1\n");
+        exit(1);
+      }
+    }
+  }
 }
 
 CILKSAN_API void __csan_init() {
   // This method should only be called once.
-  cilksan_assert(!TOOL_INITIALIZED && "__csan_init() called multiple times.");
 
   // We use the automatic deallocation of the CilkSanImpl top-level tool object
   // to shutdown and cleanup the tool at program termination.
@@ -1297,7 +1327,7 @@ typedef cilkred_map *(*merge_two_rmaps_t)(__cilkrts_worker *, cilkred_map *,
                                           cilkred_map *);
 static merge_two_rmaps_t dl___cilkrts_internal_merge_two_rmaps = NULL;
 
-CILKSAN_API cilkred_map *
+CILKSAN_API CILKSAN_WEAK cilkred_map *
 __cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws, cilkred_map *left,
                                    cilkred_map *right) {
   START_DL_INTERPOSER(__cilkrts_internal_merge_two_rmaps, merge_two_rmaps_t);
@@ -1332,7 +1362,7 @@ cilkred_map *__wrap___cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws,
 typedef void *(*hyper_alloc_t)(void *, size_t);
 static hyper_alloc_t dl___cilkrts_hyper_alloc = NULL;
 
-CILKSAN_API void*
+CILKSAN_API CILKSAN_WEAK void*
 __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
   START_DL_INTERPOSER(__cilkrts_hyper_alloc, hyper_alloc_t);
 
@@ -1362,7 +1392,7 @@ void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 typedef void (*hyper_dealloc_t)(void *, void *);
 static hyper_dealloc_t dl___cilkrts_hyper_dealloc = NULL;
 
-CILKSAN_API void
+CILKSAN_API CILKSAN_WEAK void
 __cilkrts_hyper_dealloc(void *ignored, void *view) {
   START_DL_INTERPOSER(__cilkrts_hyper_dealloc, hyper_dealloc_t);
 
