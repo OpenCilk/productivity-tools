@@ -50,15 +50,6 @@ inline std::ofstream &operator<<(std::ofstream &os, const wsp_t &pt) {
 
 #endif // #ifdef __cplusplus
 
-CILKSCALE_EXTERN_C
-wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW;
-
-CILKSCALE_EXTERN_C
-wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW;
-
-CILKSCALE_EXTERN_C
-void wsp_dump(wsp_t wsp, const char *tag);
-
 #ifdef __cplusplus
 inline wsp_t operator+(wsp_t lhs, const wsp_t &rhs) noexcept {
   lhs += rhs;
@@ -81,28 +72,44 @@ inline wsp_t wsp_zero(void) CILKSCALE_NOTHROW {
 
 #ifndef __cilkscale__
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
 // Default implementations when the program is not compiled with Cilkscale.
-CILKSCALE_EXTERN_C inline wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
+static inline wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   wsp_t res = {0, 0, 0};
   return res;
 }
 
-CILKSCALE_EXTERN_C
-inline wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+static inline wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   wsp_t res = {0, 0, 0};
   return res;
 }
 
-CILKSCALE_EXTERN_C
-inline wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+static inline wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   wsp_t res = {0, 0, 0};
   return res;
 }
 
-CILKSCALE_EXTERN_C
-inline void wsp_dump(wsp_t wsp, const char *tag) { return; }
-#else
+static inline void wsp_dump(wsp_t wsp, const char *tag) { return; }
+
+#ifdef __cplusplus
+} // extern "C"
+#endif // __cplusplus
+
+#else // #ifndef __cilkscale__
+
 CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW;
+
+CILKSCALE_EXTERN_C
+wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW;
+
+CILKSCALE_EXTERN_C
+wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW;
+
+CILKSCALE_EXTERN_C
+void wsp_dump(wsp_t wsp, const char *tag);
 
 #endif // #ifndef __cilkscale__
 
