@@ -1,5 +1,6 @@
 #include <dlfcn.h>
 #include <pthread.h>
+#include <threads.h>
 
 #include "driver.h"
 
@@ -76,71 +77,130 @@ CILKSAN_API void __cilksan_unregister_lock_explicit(const void *mutex) {
 struct __cilkrts_worker;
 extern "C" __cilkrts_worker *__cilkrts_get_tls_worker();
 
-typedef int (*pthread_mutex_init_t)(pthread_mutex_t *,
-                                    const pthread_mutexattr_t *);
-static pthread_mutex_init_t dl_pthread_mutex_init = NULL;
-
-CILKSAN_API int pthread_mutex_init(pthread_mutex_t *mutex,
-                                   const pthread_mutexattr_t *attr) {
-  START_DL_INTERPOSER(pthread_mutex_init, pthread_mutex_init_t);
-
-  int result = dl_pthread_mutex_init(mutex, attr);
-  if (TOOL_INITIALIZED) {
+CILKSAN_API int __csan_pthread_mutex_init(pthread_mutex_t *mutex,
+                                          const pthread_mutexattr_t *attr) {
+  int result = pthread_mutex_init(mutex, attr);
+  if (TOOL_INITIALIZED)
     lock_ids.insert((uintptr_t)mutex, next_lock_id++);
-  }
   return result;
 }
 
-typedef int (*pthread_mutex_destroy_t)(pthread_mutex_t *);
-static pthread_mutex_destroy_t dl_pthread_mutex_destroy = NULL;
-
-CILKSAN_API int pthread_mutex_destroy(pthread_mutex_t *mutex) {
-  START_DL_INTERPOSER(pthread_mutex_destroy, pthread_mutex_destroy_t);
-
-  int result = dl_pthread_mutex_destroy(mutex);
-  if (lock_ids.contains((uintptr_t)mutex)) {
+CILKSAN_API int __csan_pthread_mutex_destroy(pthread_mutex_t *mutex) {
+  int result = pthread_mutex_destroy(mutex);
+  if (TOOL_INITIALIZED && lock_ids.contains((uintptr_t)mutex))
     lock_ids.remove((uintptr_t)mutex);
-  }
   return result;
 }
 
-typedef int(*pthread_mutex_lockfn_t)(pthread_mutex_t *);
-static pthread_mutex_lockfn_t dl_pthread_mutex_lock = NULL;
-static pthread_mutex_lockfn_t dl_pthread_mutex_trylock = NULL;
-static pthread_mutex_lockfn_t dl_pthread_mutex_unlock = NULL;
+CILKSAN_API int __csan_mtx_init(mtx_t *mutex, int type) {
+  int result = mtx_init(mutex, type);
+  if (TOOL_INITIALIZED)
+    lock_ids.insert((uintptr_t)mutex, next_lock_id++);
+  return result;
+}
 
-CILKSAN_API int pthread_mutex_lock(pthread_mutex_t *mutex) {
-  START_DL_INTERPOSER(pthread_mutex_lock, pthread_mutex_lockfn_t);
+CILKSAN_API void __csan_mtx_destroy(mtx_t *mutex) {
+  mtx_destroy(mutex);
+  if (TOOL_INITIALIZED && lock_ids.contains((uintptr_t)mutex))
+    lock_ids.remove((uintptr_t)mutex);
+}
 
-  int result = dl_pthread_mutex_lock(mutex);
+// FIXME: Ideally we would disallow locking any mutex we haven't seen before,
+// but some lock implementations, such as C++11 std::mutex, use
+// pthread_mutex_lock on storage not initialized by pthread_mutex_init.
+//
+// In the future, we might replace the constructor for std::mutex by providing a
+// custom implementation in a distinct header file that is only used when
+// compiling with Cilksan.  But for now we simply allow locking routines to
+// initialize locks.
+//
+// We should also modify Cilksan to properly remove locks when the underlying
+// storage is deallocated, even if the lock is not explicitly destroyed.
+
+CILKSAN_API int __csan_pthread_mutex_lock(pthread_mutex_t *mutex) {
+  int result = pthread_mutex_lock(mutex);
   // Only record the lock acquire if the tool is initialized and this routine is
   // run on a Cilk worker.
   if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
       is_execution_parallel() && !result) {
+    if (!lock_ids.contains((uintptr_t)mutex))
+      lock_ids.insert((uintptr_t)mutex, next_lock_id++);
     if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
       CilkSanImpl.do_acquire_lock(*lock_id);
   }
   return result;
 }
 
-CILKSAN_API int pthread_mutex_trylock(pthread_mutex_t *mutex) {
-  START_DL_INTERPOSER(pthread_mutex_trylock, pthread_mutex_lockfn_t);
-
-  int result = dl_pthread_mutex_trylock(mutex);
+CILKSAN_API int __csan_pthread_mutex_trylock(pthread_mutex_t *mutex) {
+  int result = pthread_mutex_trylock(mutex);
   // Only record the lock acquire if the tool is initialized and this routine is
   // run on a Cilk worker.
   if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
       is_execution_parallel() && !result) {
+    if (!lock_ids.contains((uintptr_t)mutex))
+      lock_ids.insert((uintptr_t)mutex, next_lock_id++);
     if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
       CilkSanImpl.do_acquire_lock(*lock_id);
   }
   return result;
 }
 
-CILKSAN_API int pthread_mutex_unlock(pthread_mutex_t *mutex) {
-  START_DL_INTERPOSER(pthread_mutex_unlock, pthread_mutex_lockfn_t);
+CILKSAN_API int __csan_pthread_mutex_unlock(pthread_mutex_t *mutex) {
+  int result = pthread_mutex_unlock(mutex);
+  // Only record the lock release if the tool is initialized and this routine is
+  // run on a Cilk worker.
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      is_execution_parallel() && !result) {
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_release_lock(*lock_id);
+  }
+  return result;
+}
 
-  int result = dl_pthread_mutex_unlock(mutex);
+CILKSAN_API int __csan_mtx_lock(mtx_t *mutex) {
+  int result = mtx_lock(mutex);
+  // Only record the lock acquire if the tool is initialized and this routine is
+  // run on a Cilk worker.
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      is_execution_parallel() && !result) {
+    if (!lock_ids.contains((uintptr_t)mutex))
+      lock_ids.insert((uintptr_t)mutex, next_lock_id++);
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_acquire_lock(*lock_id);
+  }
+  return result;
+}
+
+CILKSAN_API int __csan_mtx_trylock(mtx_t *mutex) {
+  int result = mtx_trylock(mutex);
+  // Only record the lock acquire if the tool is initialized and this routine is
+  // run on a Cilk worker.
+  if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
+      is_execution_parallel() && !result) {
+    if (!lock_ids.contains((uintptr_t)mutex))
+      lock_ids.insert((uintptr_t)mutex, next_lock_id++);
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_acquire_lock(*lock_id);
+  }
+  return result;
+}
+
+CILKSAN_API int
+__csan_mtx_timedlock(mtx_t *__restrict__ mutex,
+                     const struct timespec *__restrict__ time_point) {
+  int result = mtx_timedlock(mutex, time_point);
+  // Only record the lock acquire if the tool is initialized and this routine is
+  // run on a Cilk worker.
+  if ((thrd_success == result) && TOOL_INITIALIZED &&
+      __cilkrts_get_tls_worker() && is_execution_parallel() && !result) {
+    if (const LockID_t *lock_id = lock_ids.get((uintptr_t)mutex))
+      CilkSanImpl.do_acquire_lock(*lock_id);
+  }
+  return result;
+}
+
+CILKSAN_API int __csan_mtx_unlock(mtx_t *mutex) {
+  int result = mtx_unlock(mutex);
   // Only record the lock release if the tool is initialized and this routine is
   // run on a Cilk worker.
   if (TOOL_INITIALIZED && __cilkrts_get_tls_worker() &&
@@ -166,6 +226,18 @@ CILKSAN_API int pthread_once(pthread_once_t *once_control,
   return result;
 }
 
+typedef void (*call_once_fn_t)(once_flag *, void (*fn)(void));
+static call_once_fn_t dl_call_once = NULL;
+
+CILKSAN_API void call_once(once_flag *once_control, void (*fn)(void)) {
+  START_DL_INTERPOSER(call_once, call_once_fn_t);
+
+  // call_once ensures that the given function is run just once by any thread
+  // in the process.  We simply disable instrumentation around the invocation.
+  disable_checking();
+  dl_call_once(once_control, fn);
+  enable_checking();
+}
 
 typedef struct guard_t guard_t;
 
