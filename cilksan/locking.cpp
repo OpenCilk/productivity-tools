@@ -1,6 +1,8 @@
 #include <dlfcn.h>
 #include <pthread.h>
+#ifndef __STDC_NO_THREADS__
 #include <threads.h>
+#endif // __STDC_NO_THREADS__
 
 #include "driver.h"
 
@@ -92,6 +94,7 @@ CILKSAN_API int __csan_pthread_mutex_destroy(pthread_mutex_t *mutex) {
   return result;
 }
 
+#ifndef __STDC_NO_THREADS__
 CILKSAN_API int __csan_mtx_init(mtx_t *mutex, int type) {
   int result = mtx_init(mutex, type);
   if (TOOL_INITIALIZED)
@@ -104,6 +107,7 @@ CILKSAN_API void __csan_mtx_destroy(mtx_t *mutex) {
   if (TOOL_INITIALIZED && lock_ids.contains((uintptr_t)mutex))
     lock_ids.remove((uintptr_t)mutex);
 }
+#endif // __STDC_NO_THREADS__
 
 // FIXME: Ideally we would disallow locking any mutex we haven't seen before,
 // but some lock implementations, such as C++11 std::mutex, use
@@ -157,6 +161,7 @@ CILKSAN_API int __csan_pthread_mutex_unlock(pthread_mutex_t *mutex) {
   return result;
 }
 
+#ifndef __STDC_NO_THREADS__
 CILKSAN_API int __csan_mtx_lock(mtx_t *mutex) {
   int result = mtx_lock(mutex);
   // Only record the lock acquire if the tool is initialized and this routine is
@@ -210,6 +215,7 @@ CILKSAN_API int __csan_mtx_unlock(mtx_t *mutex) {
   }
   return result;
 }
+#endif // __STDC_NO_THREADS__
 
 typedef int (*pthread_once_fn_t)(pthread_once_t *, void (*init_routine)(void));
 static pthread_once_fn_t dl_pthread_once = NULL;
@@ -226,6 +232,7 @@ CILKSAN_API int pthread_once(pthread_once_t *once_control,
   return result;
 }
 
+#ifndef __STDC_NO_THREADS__
 typedef void (*call_once_fn_t)(once_flag *, void (*fn)(void));
 static call_once_fn_t dl_call_once = NULL;
 
@@ -238,6 +245,7 @@ CILKSAN_API void call_once(once_flag *once_control, void (*fn)(void)) {
   dl_call_once(once_control, fn);
   enable_checking();
 }
+#endif // __STDC_NO_THREADS__
 
 typedef struct guard_t guard_t;
 
