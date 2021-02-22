@@ -2626,6 +2626,56 @@ CILKSAN_API void __csan_strtoull(const csi_id_t call_id, const csi_id_t func_id,
                                                result, nptr, endptr, base);
 }
 
+CILKSAN_API void __csan_strtok(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               char *result, char *str,
+                               const char *delim) {
+  static char *__csan_strtok_str;
+  START_HOOK(call_id);
+
+  MAAP_t str_MAAPVal = MAAP_t::ModRef, delim_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    str_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    delim_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  // Determine the string that will be scanned.
+  char *my_str = str;
+  if (nullptr == my_str) {
+    my_str = __csan_strtok_str;
+    if (is_execution_parallel())
+      check_read_bytes(call_id, MAAP_t::ModRef, &__csan_strtok_str,
+                       sizeof(char *));
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, delim_MAAPVal, delim, strlen(delim)+1);
+
+  // We don't have visibility into the static variable keeping track of the last
+  // non-null value of str passed to strtok, so we use our own copy as a proxy
+  // for detecting races.
+
+  if (nullptr == result) {
+    // No match found to a character in delim.
+    check_read_bytes(call_id, str_MAAPVal, my_str, strlen(my_str) + 1);
+  } else {
+    // Record the reads and writes performed.
+    size_t result_len = strlen(result);
+    check_read_bytes(call_id, str_MAAPVal, my_str,
+                     result - my_str + result_len + 1);
+    check_write_bytes(call_id, str_MAAPVal, result + result_len, 1);
+    // Save a pointer to the next location in str that strtok will scan if given
+    // str == nullptr.
+    __csan_strtok_str = result + result_len + 1;
+    check_write_bytes(call_id, MAAP_t::ModRef, &__csan_strtok_str,
+                      sizeof(char *));
+  }
+}
+
 CILKSAN_API void __csan_tanf(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              float result, float arg) {
