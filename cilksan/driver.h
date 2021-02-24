@@ -12,7 +12,15 @@
 #include "stack.h"
 
 #define CILKSAN_API extern "C" __attribute__((visibility("default")))
+// The CILKSAN_WEAK macro is used to mark dynamic interposers.  On Linux, these
+// symbols need to be marked weak, in order to avoid multiple-definition errors.
+// On Mac, these symbols must not be marked weak, or else the dynamic linker
+// will ignore the symbols.
+#if __APPLE__
+#define CILKSAN_WEAK
+#else // __APPLE__
 #define CILKSAN_WEAK __attribute__((weak))
+#endif // __APPLE__
 #define CALLERPC ((uintptr_t)__builtin_return_address(0))
 
 // FILE io used to print error messages
