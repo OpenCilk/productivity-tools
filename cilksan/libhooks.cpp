@@ -1128,6 +1128,49 @@ CILKSAN_API void __csan_fgetc_unlocked(const csi_id_t call_id,
   check_write_bytes(call_id, stream_MAAPVal, stream, 1);
 }
 
+CILKSAN_API void __csan_fgets(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              char *result, char *str, int num, FILE *stream) {
+  START_HOOK(call_id);
+
+  MAAP_t str_MAAPVal = MAAP_t::ModRef, stream_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    str_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  size_t len = strlen(str);
+  check_write_bytes(call_id, str_MAAPVal, str, len + 1);
+}
+
+CILKSAN_API void __csan_fgets_unlocked(const csi_id_t call_id,
+                                       const csi_id_t func_id,
+                                       unsigned MAAP_count,
+                                       const call_prop_t prop, char *result,
+                                       char *str, int num, FILE *stream) {
+  START_HOOK(call_id);
+
+  MAAP_t str_MAAPVal = MAAP_t::ModRef, stream_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    str_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  size_t len = strlen(str);
+  check_read_bytes(call_id, stream_MAAPVal, stream, 1);
+  check_write_bytes(call_id, str_MAAPVal, str, len + 1);
+}
+
 CILKSAN_API void __csan_fileno(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
