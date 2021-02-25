@@ -217,32 +217,22 @@ CILKSAN_API int __csan_mtx_unlock(mtx_t *mutex) {
 }
 #endif // __STDC_NO_THREADS__
 
-typedef int (*pthread_once_fn_t)(pthread_once_t *, void (*init_routine)(void));
-static pthread_once_fn_t dl_pthread_once = NULL;
-
-CILKSAN_API int pthread_once(pthread_once_t *once_control,
-                             void (*init_routine)(void)) {
-  START_DL_INTERPOSER(pthread_once, pthread_once_fn_t);
-
+CILKSAN_API int __csan_pthread_once(pthread_once_t *once_control,
+                                    void (*init_routine)(void)) {
   // pthread_once ensures that the given function is run just once by any thread
   // in the process.  We simply disable instrumentation around the invocation.
   disable_checking();
-  int result = dl_pthread_once(once_control, init_routine);
+  int result = pthread_once(once_control, init_routine);
   enable_checking();
   return result;
 }
 
 #ifndef __STDC_NO_THREADS__
-typedef void (*call_once_fn_t)(once_flag *, void (*fn)(void));
-static call_once_fn_t dl_call_once = NULL;
-
-CILKSAN_API void call_once(once_flag *once_control, void (*fn)(void)) {
-  START_DL_INTERPOSER(call_once, call_once_fn_t);
-
+CILKSAN_API void __csan_call_once(once_flag *once_control, void (*fn)(void)) {
   // call_once ensures that the given function is run just once by any thread
   // in the process.  We simply disable instrumentation around the invocation.
   disable_checking();
-  dl_call_once(once_control, fn);
+  call_once(once_control, fn);
   enable_checking();
 }
 #endif // __STDC_NO_THREADS__
