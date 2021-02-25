@@ -1092,6 +1092,10 @@ void __csan_after_free(const csi_id_t free_id, const void *ptr,
   }
 }
 
+// FIXME: Currently these dynamic interposers are never used, because common
+// third-party libraries, such as jemalloc, do not work properly when these
+// methods are dynamically interposed.  We therefore rely on Cilksan hooks to
+// find allocation routines.
 #if CILKSAN_DYNAMIC
 
 static std::map<uintptr_t, size_t> pages_to_clear;
