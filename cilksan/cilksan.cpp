@@ -580,9 +580,8 @@ CilkSanImpl_t::record_mem_helper(const csi_id_t acc_id, uintptr_t addr,
     return;
 
   // Use fast path for small, statically aligned accesses.
-  if (alignment &&
-      alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-      mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
+  if (alignment && mem_size <= alignment &&
+      alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
     // We're committed to using the fast-path check.  Update the occupied bits,
     // and if that process discovers unoccupied entries, perform the check.
     if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
@@ -611,9 +610,8 @@ void CilkSanImpl_t::record_locked_mem_helper(const csi_id_t acc_id,
   // TODO: Add a fast path for handling locked accesses.
 
   // // Use fast path for small, statically aligned accesses.
-  // if (alignment &&
-  //     alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize()) &&
-  //     mem_size <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
+  // if (alignment && mem_size <= alignment &&
+  //     alignment <= (1 << SimpleShadowMem::getLgSmallAccessSize())) {
   //   // We're committed to using the fast-path check.  Update the occupied bits,
   //   // and if that process discovers unoccupied entries, perform the check.
   //   if (shadow_memory->setOccupiedFast(is_read, addr, mem_size)) {
