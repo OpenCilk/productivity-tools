@@ -1508,6 +1508,22 @@ CILKSAN_API void __csan_fseek(const csi_id_t call_id, const csi_id_t func_id,
     MAAPs.pop();
 }
 
+CILKSAN_API void __csan_fseeko(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, FILE *stream, off_t offset,
+                               int origin) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  // Most operations on streams are locked by default
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+}
+
 CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, int fd, struct stat *buf) {
@@ -1528,6 +1544,21 @@ CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ftell(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               long result, FILE *stream) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  // Most operations on streams are locked by default
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+}
+
+CILKSAN_API void __csan_ftello(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               off_t result, FILE *stream) {
   if (!TOOL_INITIALIZED)
     return;
 
