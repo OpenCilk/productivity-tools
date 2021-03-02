@@ -2380,6 +2380,31 @@ CILKSAN_API void __csan_strcat(const csi_id_t call_id, const csi_id_t func_id,
   check_write_bytes(call_id, dest_MAAPVal, dest + strlen(dest), src_len + 1);
 }
 
+CILKSAN_API void __csan___strcat_chk(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, char *result, char *dest, const char *src,
+    size_t destlen) {
+  START_HOOK(call_id);
+
+  MAAP_t dest_MAAPVal = MAAP_t::ModRef, src_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    dest_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    src_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  size_t src_len = strlen(src);
+  if (src_len + strlen(dest) + 1 > destlen)
+    return;
+
+  check_read_bytes(call_id, src_MAAPVal, src, src_len + 1);
+  check_write_bytes(call_id, dest_MAAPVal, dest + strlen(dest), src_len + 1);
+}
+
 CILKSAN_API void __csan_strchr(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                char *result, const char *str, int ch) {
@@ -2451,6 +2476,30 @@ CILKSAN_API void __csan_strcpy(const csi_id_t call_id, const csi_id_t func_id,
     return;
 
   size_t src_len = strlen(src);
+  check_read_bytes(call_id, src_MAAPVal, src, src_len + 1);
+  check_write_bytes(call_id, dest_MAAPVal, dest, src_len + 1);
+}
+
+CILKSAN_API void __csan___strcpy_chk(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, char *result, char *dest, const char *src,
+    size_t destlen) {
+  START_HOOK(call_id);
+
+  MAAP_t dest_MAAPVal = MAAP_t::ModRef, src_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    dest_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    src_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  size_t src_len = strlen(src);
+  if (src_len + 1 > destlen)
+    return;
   check_read_bytes(call_id, src_MAAPVal, src, src_len + 1);
   check_write_bytes(call_id, dest_MAAPVal, dest, src_len + 1);
 }
