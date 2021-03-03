@@ -1613,6 +1613,7 @@ CILKSAN_API void __csan_fseeko(const csi_id_t call_id, const csi_id_t func_id,
     MAAPs.pop();
 }
 
+#if defined(_LARGEFILE64_SOURCE)
 CILKSAN_API void __csan_fseeko64(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  int result, FILE *stream, off64_t offset,
@@ -1628,6 +1629,7 @@ CILKSAN_API void __csan_fseeko64(const csi_id_t call_id, const csi_id_t func_id,
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
 }
+#endif // defined(_LARGEFILE64_SOURCE)
 
 CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
@@ -1676,6 +1678,7 @@ CILKSAN_API void __csan_ftello(const csi_id_t call_id, const csi_id_t func_id,
     MAAPs.pop();
 }
 
+#if defined(_LARGEFILE64_SOURCE)
 CILKSAN_API void __csan_ftello64(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  off64_t result, FILE *stream) {
@@ -1690,6 +1693,7 @@ CILKSAN_API void __csan_ftello64(const csi_id_t call_id, const csi_id_t func_id,
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
 }
+#endif // defined(_LARGEFILE64_SOURCE)
 
 CILKSAN_API void __csan_fwrite(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
