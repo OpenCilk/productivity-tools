@@ -701,6 +701,24 @@ CILKSAN_API void __csan_cbrtl(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
+CILKSAN_API void __csan_ceil(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             double result, double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_ceilf(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              float result, float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_ceill(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              long double result, long double arg) {
+  return;
+}
+
 CILKSAN_API void __csan_clearerr(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  FILE *stream) {
@@ -714,6 +732,26 @@ CILKSAN_API void __csan_clearerr(const csi_id_t call_id, const csi_id_t func_id,
 
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
+}
+
+CILKSAN_API void __csan_copysign(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 double result, double x, double y) {
+  return;
+}
+
+CILKSAN_API void __csan_copysignf(const csi_id_t call_id,
+                                  const csi_id_t func_id, unsigned MAAP_count,
+                                  const call_prop_t prop, float result, float x,
+                                  float y) {
+  return;
+}
+
+CILKSAN_API void __csan_copysignl(const csi_id_t call_id,
+                                  const csi_id_t func_id, unsigned MAAP_count,
+                                  const call_prop_t prop, long double result,
+                                  long double x, long double y) {
+  return;
 }
 
 CILKSAN_API void __csan_cosf(const csi_id_t call_id, const csi_id_t func_id,
@@ -1467,6 +1505,57 @@ CILKSAN_API void __csan_freopen(const csi_id_t call_id, const csi_id_t func_id,
   check_read_bytes(call_id, mode_MAAPVal, mode, strlen(mode) + 1);
 }
 
+CILKSAN_API void __csan_frexp(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              double result, double arg, int *exp) {
+  START_HOOK(call_id);
+
+  MAAP_t exp_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    exp_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, exp_MAAPVal, exp, sizeof(int));
+}
+
+CILKSAN_API void __csan_frexpf(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               float result, float arg, int *exp) {
+  START_HOOK(call_id);
+
+  MAAP_t exp_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    exp_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, exp_MAAPVal, exp, sizeof(int));
+}
+
+CILKSAN_API void __csan_frexpl(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               long double result, long double arg, int *exp) {
+  START_HOOK(call_id);
+
+  MAAP_t exp_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    exp_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, exp_MAAPVal, exp, sizeof(int));
+}
+
 CILKSAN_API void __csan_fscanf(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream, const char *format,
@@ -1948,6 +2037,94 @@ CILKSAN_API void __csan_mktime(const csi_id_t call_id, const csi_id_t func_id,
   check_read_bytes(call_id, timeptr_MAAPVal, timeptr, sizeof(struct tm));
 }
 
+CILKSAN_API void __csan_modf(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             double result, double arg, double *iptr) {
+  START_HOOK(call_id);
+
+  MAAP_t iptr_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    iptr_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, iptr_MAAPVal, iptr, sizeof(double));
+}
+
+CILKSAN_API void __csan_modff(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              float result, float arg, float *iptr) {
+  START_HOOK(call_id);
+
+  MAAP_t iptr_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    iptr_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, iptr_MAAPVal, iptr, sizeof(float));
+}
+
+CILKSAN_API void __csan_modfl(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              long double result, long double arg,
+                              long double *iptr) {
+  START_HOOK(call_id);
+
+  MAAP_t iptr_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    iptr_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, iptr_MAAPVal, iptr, sizeof(long double));
+}
+
+CILKSAN_API void __csan_nearbyint(const csi_id_t call_id,
+                                  const csi_id_t func_id, unsigned MAAP_count,
+                                  const call_prop_t prop, double result,
+                                  double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_nearbyintl(const csi_id_t call_id,
+                                   const csi_id_t func_id, unsigned MAAP_count,
+                                   const call_prop_t prop, float result,
+                                   float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_nearbyintf(const csi_id_t call_id,
+                                   const csi_id_t func_id, unsigned MAAP_count,
+                                   const call_prop_t prop, long double result,
+                                   long double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_ntohl(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              uint32_t result, uint32_t netlong) {
+  return;
+}
+
+CILKSAN_API void __csan_ntohs(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              uint16_t result, uint16_t netlong) {
+  return;
+}
+
 CILKSAN_API void __csan_open(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              int result, const char *pathname, int flags, ...) {
@@ -2316,6 +2493,42 @@ CILKSAN_API void __csan_rewind(const csi_id_t call_id, const csi_id_t func_id,
 
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
+}
+
+CILKSAN_API void __csan_rint(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             double result, double x) {
+  return;
+}
+
+CILKSAN_API void __csan_rintf(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              float result, float x) {
+  return;
+}
+
+CILKSAN_API void __csan_rintl(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              long double result, long double x) {
+  return;
+}
+
+CILKSAN_API void __csan_round(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              double result, double x) {
+  return;
+}
+
+CILKSAN_API void __csan_roundf(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               float result, float x) {
+  return;
+}
+
+CILKSAN_API void __csan_roundl(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               long double result, long double x) {
+  return;
 }
 
 CILKSAN_API void __csan_scanf(const csi_id_t call_id, const csi_id_t func_id,
@@ -3579,6 +3792,30 @@ CILKSAN_API void __csan_tanh(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_tanhl(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               long double result, long double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_toascii(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int result, int c) {
+  return;
+}
+
+CILKSAN_API void __csan_trunc(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              double result, double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_truncf(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               float result, float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_truncl(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               long double result, long double arg) {
   return;
 }
 
