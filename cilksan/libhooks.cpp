@@ -1167,6 +1167,28 @@ CILKSAN_API void __csan_fgetc_unlocked(const csi_id_t call_id,
   check_write_bytes(call_id, stream_MAAPVal, stream, 1);
 }
 
+CILKSAN_API void __csan_fgetpos(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int result, FILE *stream, fpos_t *pos) {
+  START_HOOK(call_id);
+
+  MAAP_t stream_MAAPVal = MAAP_t::ModRef, pos_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    pos_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  if (result < 0)
+    return;
+
+  check_write_bytes(call_id, pos_MAAPVal, pos, sizeof(fpos_t));
+}
+
 CILKSAN_API void __csan_fgets(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               char *result, char *str, int num, FILE *stream) {
@@ -1223,6 +1245,24 @@ CILKSAN_API void __csan_fileno(const csi_id_t call_id, const csi_id_t func_id,
 
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
+}
+
+CILKSAN_API void __csan_floor(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              double result, double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_floorf(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               float result, float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_floorl(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               long double result, long double arg) {
+  return;
 }
 
 CILKSAN_API void __csan_fmaf(const csi_id_t call_id, const csi_id_t func_id,
@@ -1631,6 +1671,28 @@ CILKSAN_API void __csan_fseeko64(const csi_id_t call_id, const csi_id_t func_id,
 }
 #endif // defined(_LARGEFILE64_SOURCE)
 
+CILKSAN_API void __csan_fsetpos(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int result, FILE *stream, const fpos_t *pos) {
+  START_HOOK(call_id);
+
+  MAAP_t stream_MAAPVal = MAAP_t::ModRef, pos_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    pos_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  if (result < 0)
+    return;
+
+  check_read_bytes(call_id, pos_MAAPVal, pos, sizeof(fpos_t));
+}
+
 CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, int fd, struct stat *buf) {
@@ -1759,6 +1821,43 @@ CILKSAN_API void __csan_getc(const csi_id_t call_id, const csi_id_t func_id,
 
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
+}
+
+CILKSAN_API void __csan_getc_unlocked(const csi_id_t call_id,
+                                      const csi_id_t func_id,
+                                      unsigned MAAP_count,
+                                      const call_prop_t prop, int result,
+                                      FILE *stream) {
+  START_HOOK(call_id);
+
+  MAAP_t stream_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, stream_MAAPVal, stream, 1);
+}
+
+CILKSAN_API void __csan_getchar(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int result) {
+  return;
+}
+
+CILKSAN_API void __csan_getchar_unlocked(const csi_id_t call_id,
+                                         const csi_id_t func_id,
+                                         unsigned MAAP_count,
+                                         const call_prop_t prop, int result) {
+  START_HOOK(call_id);
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, MAAP_t::ModRef, stdin, 1);
 }
 
 CILKSAN_API void __csan_getenv(const csi_id_t call_id, const csi_id_t func_id,
@@ -2482,6 +2581,28 @@ CILKSAN_API void __csan_remquol(const csi_id_t call_id, const csi_id_t func_id,
     return;
 
   check_write_bytes(call_id, quo_MAAPVal, quo, sizeof(int));
+}
+
+CILKSAN_API void __csan_rename(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, const char *oldname,
+                               const char *newname) {
+  START_HOOK(call_id);
+
+  MAAP_t oldname_MAAPVal = MAAP_t::ModRef, newname_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    oldname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+
+    newname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, oldname_MAAPVal, oldname, strlen(oldname) + 1);
+  check_read_bytes(call_id, newname_MAAPVal, newname, strlen(newname) + 1);
 }
 
 CILKSAN_API void __csan_rewind(const csi_id_t call_id, const csi_id_t func_id,
