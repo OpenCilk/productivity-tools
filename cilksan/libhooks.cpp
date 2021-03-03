@@ -1838,6 +1838,27 @@ CILKSAN_API void __csan_memalign(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
+CILKSAN_API void __csan_memchr(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               char *result, const char *ptr, int val,
+			       size_t size) {
+  START_HOOK(call_id);
+
+  MAAP_t ptr_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    ptr_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  if (nullptr == result)
+    check_read_bytes(call_id, ptr_MAAPVal, ptr, size);
+  else
+    check_read_bytes(call_id, ptr_MAAPVal, ptr, result - ptr + 1);
+}
+
 CILKSAN_API void __csan_memcmp(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              int result, const void *lhs, const void *rhs,
