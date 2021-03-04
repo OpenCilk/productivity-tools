@@ -4030,6 +4030,28 @@ CILKSAN_API void __csan_utimes(const csi_id_t call_id, const csi_id_t func_id,
     check_read_bytes(call_id, times_MAAPVal, times, sizeof(struct timeval[2]));
 }
 
+CILKSAN_API void __csan_vfprintf(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 int result, FILE *stream, const char *format,
+                                 va_list ap) {
+  START_HOOK(call_id);
+
+  if (!is_execution_parallel() || result <= 0) {
+    for (unsigned i = 0; i < MAAP_count; ++i)
+      MAAPs.pop();
+    return;
+  }
+
+  MAAP_t stream_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    --MAAP_count;
+  }
+
+  vprintf_common(call_id, MAAP_count, format, ap);
+}
+
 CILKSAN_API void __csan_vfscanf(const csi_id_t call_id, const csi_id_t func_id,
                                 unsigned MAAP_count, const call_prop_t prop,
                                 int result, FILE *stream, const char *format,
