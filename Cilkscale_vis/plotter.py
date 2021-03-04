@@ -133,6 +133,9 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
   for r in range(num_plots):
     tag, data = all_data[r]
 
+    if tag == "":
+      tag = "(No tag)"
+
     # legend shared between subplots.
     axs[r,0].plot(data["num_workers"], data["obs_runtime"], "mo", label="Observed", linestyle='None', markersize = 5)
     axs[r,0].plot(data["num_workers"], data["perf_lin_runtime"], "g", label="Perfect linear speedup")
@@ -146,7 +149,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     else:
       continue
 
-    axs[r,0].set_xlabel("Num workers")
+    axs[r,0].set_xlabel("Number of workers")
     axs[r,0].set_ylabel("Runtime")
     axs[r,0].set_title(tag + " execution time")
     axs[r,0].set(xlim=[0,num_workers])
@@ -158,7 +161,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     axs[r,1].plot(data["num_workers"], data["greedy_speedup"], "c", label="Burdened-dag bound")
     axs[r,1].plot(data["num_workers"], data["span_speedup"], "y", label="Span bound")
 
-    axs[r,1].set_xlabel("Num workers")
+    axs[r,1].set_xlabel("Number of workers")
     axs[r,1].set_ylabel("Speedup")
     axs[r,1].set_title(tag + " speedup")
     axs[r,1].set(xlim=[0,num_workers], ylim=[0,num_workers])
