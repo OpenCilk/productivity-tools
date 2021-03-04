@@ -399,6 +399,8 @@ foreach(tool ${CILKTOOLS_TO_BUILD})
   cilktools_build_runtime(${tool})
 endforeach()
 
+add_subdirectory(Cilkscale_vis)
+
 if (CILKTOOLS_INCLUDE_TESTS)
   # add_subdirectory(unittests)
   add_subdirectory(test)
