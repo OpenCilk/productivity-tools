@@ -513,7 +513,7 @@ void __csi_after_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
 ///////////////////////////////////////////////////////////////////////////
 // Probes and associated routines
 
-CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   shadow_stack_t &stack = STACK;
 
   stack.stop.gettime();

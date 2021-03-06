@@ -23,10 +23,10 @@ typedef struct wsp_t {
 #define CILKSCALE_EXTERN_C extern "C"
 #define CILKSCALE_NOTHROW noexcept
 
-wsp_t &operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept;
-wsp_t &operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept;
-std::ostream &operator<<(std::ostream &os, const wsp_t &pt);
-std::ofstream &operator<<(std::ofstream &os, const wsp_t &pt);
+wsp_t &operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept  __attribute__((visibility("default")));
+wsp_t &operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept __attribute__((visibility("default")));
+std::ostream &operator<<(std::ostream &os, const wsp_t &pt)  __attribute__((visibility("default")));
+std::ofstream &operator<<(std::ofstream &os, const wsp_t &pt) __attribute__((visibility("default")));
 
 #ifndef __cilkscale__
 // Default implementations when the program is not compiled with Cilkscale.
