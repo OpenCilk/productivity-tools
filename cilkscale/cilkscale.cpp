@@ -513,7 +513,7 @@ void __csi_after_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
 ///////////////////////////////////////////////////////////////////////////
 // Probes and associated routines
 
-CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   shadow_stack_t &stack = STACK;
 
   stack.stop.gettime();
@@ -528,9 +528,9 @@ CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
 
-  wsp_t result = { stack.peek_bot().contin_work.get_raw_duration(),
-                   stack.peek_bot().contin_span.get_raw_duration(),
-                   stack.peek_bot().contin_bspan.get_raw_duration() };
+  wsp_t result = {stack.peek_bot().contin_work.get_raw_duration(),
+                  stack.peek_bot().contin_span.get_raw_duration(),
+                  stack.peek_bot().contin_bspan.get_raw_duration()};
 
   // Because of the high overhead of calling gettime(), especially compared to
   // the running time of the operations in this hook, the work and span
@@ -541,21 +541,24 @@ CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   return result;
 }
 
-wsp_t &operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept {
+__attribute__((visibility("default"))) wsp_t &
+operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept {
   lhs.work += rhs.work;
   lhs.span += rhs.span;
   lhs.bspan += rhs.bspan;
   return lhs;
 }
 
-wsp_t &operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept {
+__attribute__((visibility("default"))) wsp_t &
+operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept {
   lhs.work -= rhs.work;
   lhs.span -= rhs.span;
   lhs.bspan -= rhs.bspan;
   return lhs;
 }
 
-std::ostream &operator<<(std::ostream &OS, const wsp_t &pt) {
+__attribute__((visibility("default"))) std::ostream &
+operator<<(std::ostream &OS, const wsp_t &pt) {
   shadow_stack_t &stack = STACK;
 
   stack.stop.gettime();
@@ -577,7 +580,8 @@ std::ostream &operator<<(std::ostream &OS, const wsp_t &pt) {
   return OS;
 }
 
-std::ofstream &operator<<(std::ofstream &OS, const wsp_t &pt) {
+__attribute__((visibility("default"))) std::ofstream &
+operator<<(std::ofstream &OS, const wsp_t &pt) {
   shadow_stack_t &stack = STACK;
 
   stack.stop.gettime();
@@ -599,21 +603,21 @@ std::ofstream &operator<<(std::ofstream &OS, const wsp_t &pt) {
   return OS;
 }
 
-CILKSCALE_EXTERN_C wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   lhs.work += rhs.work;
   lhs.span += rhs.span;
   lhs.bspan += rhs.bspan;
   return lhs;
 }
 
-CILKSCALE_EXTERN_C wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   lhs.work -= rhs.work;
   lhs.span -= rhs.span;
   lhs.bspan -= rhs.bspan;
   return lhs;
 }
 
-CILKSCALE_EXTERN_C void wsp_dump(wsp_t wsp, const char *tag) {
+CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
   shadow_stack_t &stack = STACK;
 
   stack.stop.gettime();

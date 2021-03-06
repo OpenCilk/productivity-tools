@@ -224,48 +224,52 @@ CILKTOOL_API void __csi_unit_init(const char *const file_name,
 ///////////////////////////////////////////////////////////////////////////
 // Probes and associated routines
 
-CILKSCALE_EXTERN_C wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   if (!tool)
     return wsp_zero();
 
   TIMER.gettime();
   duration_t time_since_start = elapsed_time(&TIMER, &tool->start);
-  wsp_t result = { cilk_time_t(time_since_start).get_raw_duration(), 0, 0 };
+  wsp_t result = {cilk_time_t(time_since_start).get_raw_duration(), 0, 0};
 
   return result;
 }
 
-wsp_t &operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept {
+__attribute__((visibility("default"))) wsp_t &
+operator+=(wsp_t &lhs, const wsp_t &rhs) noexcept {
   lhs.work += rhs.work;
   return lhs;
 }
 
-wsp_t &operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept {
+__attribute__((visibility("default"))) wsp_t &
+operator-=(wsp_t &lhs, const wsp_t &rhs) noexcept {
   lhs.work -= rhs.work;
   return lhs;
 }
 
-std::ostream &operator<<(std::ostream &OS, const wsp_t &pt) {
+__attribute__((visibility("default"))) std::ostream &
+operator<<(std::ostream &OS, const wsp_t &pt) {
   OS << cilk_time_t(pt.work);
   return OS;
 }
 
-std::ofstream &operator<<(std::ofstream &OS, const wsp_t &pt) {
+__attribute__((visibility("default"))) std::ofstream &
+operator<<(std::ofstream &OS, const wsp_t &pt) {
   OS << cilk_time_t(pt.work);
   return OS;
 }
 
-CILKSCALE_EXTERN_C wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_add(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   lhs.work += rhs.work;
   return lhs;
 }
 
-CILKSCALE_EXTERN_C wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
+CILKTOOL_API wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
   lhs.work -= rhs.work;
   return lhs;
 }
 
-CILKSCALE_EXTERN_C void wsp_dump(wsp_t wsp, const char *tag) {
+CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
   ensure_header(OUTPUT);
   print_results(OUTPUT, tag, cilk_time_t(wsp.work));
 }
