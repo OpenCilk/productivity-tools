@@ -1,0 +1,17 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+# Tool-specific config options.
+config.name_suffix = "@CILKSAN_TEST_CONFIG_SUFFIX@"
+config.target_cflags = "@CILKSAN_TEST_TARGET_CFLAGS@"
+config.clang = "@CILKSAN_TEST_TARGET_CC@"
+config.bits = "@CILKSAN_TEST_BITS@"
+config.apple_platform = "@CILKSAN_TEST_APPLE_PLATFORM@"
+config.apple_platform_min_deployment_target_flag = "@CILKSAN_TEST_MIN_DEPLOYMENT_TARGET_FLAG@"
+config.cilksan_dynamic = @CILKSAN_TEST_DYNAMIC@
+config.target_arch = "@CILKSAN_TEST_TARGET_ARCH@"
+
+# Load common config for all compiler-rt lit tests.
+lit_config.load_config(config, "@CILKTOOLS_BINARY_DIR@/test/lit.common.configured")
+
+# Load tool-specific config that would do the real work.
+lit_config.load_config(config, "@CILKSAN_LIT_SOURCE_DIR@/lit.cfg.py")

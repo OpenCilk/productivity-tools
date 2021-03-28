@@ -1,3 +1,6 @@
+// RUN: %clangxx_cilksan -fopencilk -Og %s -o %t
+// RUN: %run %t 2>&1 | FileCheck %s
+
 #include <cilk/cilk.h>
 #include <iostream>
 #include <mutex>
@@ -25,3 +28,6 @@ int main(int argc, char **argv)
 
   return 0;
 }
+
+// CHECK: Cilksan detected 0 distinct races.
+// CHECK-NEXT: Cilksan suppressed 0 duplicate race reports.

@@ -1,3 +1,5 @@
+// RUN: %clang_cilksan -fopencilk -Og %s -o %t
+// RUN: %run %t 2>&1 | FileCheck %s
 
 #include <stdio.h>
 #include <stdint.h>
@@ -62,3 +64,6 @@ int main() {
 
   return 0;
 }
+
+// CHECK: Cilksan detected 0 distinct races.
+// CHECK-NEXT: Cilksan suppressed 0 duplicate race reports.
