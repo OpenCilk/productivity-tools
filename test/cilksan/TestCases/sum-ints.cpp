@@ -1,3 +1,6 @@
+// RUN: %clangxx_cilksan -fopencilk -O2 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s
+
 /**		-*- C++ -*-
  *
  * \file	sum-ints.cpp
@@ -229,7 +232,9 @@ sum_t accum_true (num_t n) {
   
 }
 
+// CHECK-LABEL: true solution
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_wrong */
@@ -247,6 +252,23 @@ sum_t accum_wrong (num_t n) {
 
 }
 
+// CHECK-LABEL: racy cilk_for
+
+// CHECK: Race detected on location [[SUM:[0-9a-f]+]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK: * Read {{[0-9a-f]+}}
+// CHECK: Common calling context
+// CHECK-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+// CHECK: Stack object
+
+// CHECK: Race detected on location [[SUM]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK: Common calling context
+// CHECK-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+// CHECK: Stack object
 
 
 /* ******************************
@@ -270,7 +292,9 @@ sum_t accum_lock (num_t n) {
 
 }
 
+// CHECK-LABEL: cilk_for w/ POSIX lock
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_spawn */
@@ -284,7 +308,9 @@ sum_t accum_spawn (num_t n) {
 
 }
 
+// CHECK-LABEL: cilk_spawn reduction
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_reducer */
@@ -301,6 +327,10 @@ sum_t accum_reducer (num_t n) {
   return sum.get_value();
   
 }
+
+// CHECK-LABEL: cilk reducer
+
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_wls */
@@ -340,3 +370,10 @@ sum_t accum_wls (num_t n) {
 
   return sum;
 }
+
+// CHECK-LABEL: cilk WLS
+
+// CHECK-NOT: Race detected on location
+
+// CHECK: Cilksan detected 2 distinct races.
+// CHECK-NEXT: Cilksan suppressed {{[0-9]+}} duplicate race reports.

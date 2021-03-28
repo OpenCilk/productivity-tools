@@ -1,3 +1,20 @@
+// RUN: %clangxx_cilksan -fopencilk -O0 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-O0
+// RUN: %clangxx_cilksan -fopencilk -Og %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clangxx_cilksan -fopencilk -O2 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clangxx_cilksan -fopencilk -O2 -fno-vectorize -fno-stripmine -fno-unroll-loops %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clangxx_cilksan -fopencilk -fcilktool=cilkscale -O0 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-O0
+// RUN: %clangxx_cilksan -fopencilk -fcilktool=cilkscale -Og %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clangxx_cilksan -fopencilk -fcilktool=cilkscale -O2 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clangxx_cilksan -fopencilk -fcilktool=cilkscale -O2 -fno-vectorize -fno-stripmine -fno-unroll-loops %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+
 /**		-*- C++ -*-
  *
  * \file	sum-vector-int.cpp
@@ -27,6 +44,7 @@
 #include <vector>
 #include <type_traits>
 #include <random>
+#include <unistd.h>
 
 #include <cilk/reducer_opadd.h>
 
@@ -128,6 +146,21 @@ namespace {
  * main
  */
 int main (int argc, char* argv[]) {
+
+// #ifdef __linux__
+//   // Copied from rrcalls.h
+// #define RR_CALL_BASE 1000
+// #define SYS_rrcall_check_presence (RR_CALL_BASE + 8)
+// #define SYS_rrcall_current_time (RR_CALL_BASE + 10)
+//   {
+//     fprintf(stderr, "RR syscall from sum-vector-int\n");
+//     int res = syscall(SYS_rrcall_check_presence, 0, 0, 0, 0, 0, 0);
+//     fprintf(stderr, "syscall(rr_check_presence) returned %d\n",
+//             res);
+//     if (-1 == res)
+//       perror("Error calling rrcall_check_presence");
+//   }
+// #endif
 
   /* variables */
   
@@ -237,7 +270,9 @@ sum_t accum_true (num_vec_t const & vals) {
   
 }
 
+// CHECK-LABEL: true solution
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_wrong */
@@ -255,7 +290,27 @@ sum_t accum_wrong (num_vec_t const & vals) {
 
 }
 
+// CHECK-LABEL: racy cilk_for
 
+// CHECK: Race detected on location [[SUM:[0-9a-f]+]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: * Read {{[0-9a-f]+}}
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: Common calling context
+// CHECK-O0-NEXT: Call {{[0-9a-f]+}}
+// CHECK-OPT-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK: Stack object
+
+// CHECK: Race detected on location [[SUM]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: Common calling context
+// CHECK-O0-NEXT: Call {{[0-9a-f]+}}
+// CHECK-OPT-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK: Stack object
 
 /* ******************************
  * accum_lock */
@@ -278,7 +333,9 @@ sum_t accum_lock (num_vec_t const & vals) {
 
 }
 
+// CHECK-LABEL: cilk_for w/ POSIX lock
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_spawn */
@@ -292,7 +349,9 @@ sum_t accum_spawn (num_vec_t const & vals) {
 
 }
 
+// CHECK-LABEL: cilk_spawn reduction
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_reducer */
@@ -309,6 +368,10 @@ sum_t accum_reducer (num_vec_t const & vals) {
   return sum.get_value();
   
 }
+
+// CHECK-LABEL: cilk reducer
+
+// CHECK-NOT: Race detected on location
 
 #ifdef WLS
 /* ******************************
@@ -333,3 +396,6 @@ sum_t accum_wls (num_vec_t const & vals) {
   return sum;
 }
 #endif
+
+// CHECK: Cilksan detected 2 distinct races.
+// CHECK-NEXT: Cilksan suppressed {{[0-9]+}} duplicate race reports.

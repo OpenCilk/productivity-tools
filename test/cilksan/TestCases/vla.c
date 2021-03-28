@@ -1,3 +1,6 @@
+// RUN: %clang_cilksan -fopencilk -Og %s -o %t
+// RUN: %run %t 2>&1 | FileCheck %s
+
 #include <cilk/cilk.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -58,3 +61,24 @@ int main(int argc, char *argv[])
   unsigned errors = loop(length);
   return errors != 0;
 }
+
+// CHECK: Race detected on location [[DATA:[0-9a-f]+]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} fill
+// CHECK-NEXT: to variable data
+// CHECK-NEXT: Spawn {{[0-9a-f]+}} loop
+// CHECK-NEXT: * Free {{[0-9a-f]+}} loop
+// CHECK: Common calling context
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+// CHECK: Stack object
+
+// CHECK: Race detected on location [[DATA]]
+// CHECK-NEXT: * Read {{[0-9a-f]+}} check
+// CHECK-NEXT: to variable data
+// CHECK-NEXT: Spawn {{[0-9a-f]+}} loop
+// CHECK-NEXT: * Free {{[0-9a-f]+}} loop
+// CHECK: Common calling context
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+// CHECK: Stack object
+
+// CHECK: Cilksan detected 2 distinct races.
+// CHECK-NEXT: Cilksan suppressed {{[0-9]+}} duplicate race reports.

@@ -1,3 +1,20 @@
+// RUN: %clang_cilksan -fopencilk -O0 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-O0
+// RUN: %clang_cilksan -fopencilk -Og %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clang_cilksan -fopencilk -O2 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clang_cilksan -fopencilk -O2 -fno-vectorize -fno-stripmine -fno-unroll-loops %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clang_cilksan -fopencilk -fcilktool=cilkscale -O0 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-O0
+// RUN: %clang_cilksan -fopencilk -fcilktool=cilkscale -Og %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clang_cilksan -fopencilk -fcilktool=cilkscale -O2 %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+// RUN: %clang_cilksan -fopencilk -fcilktool=cilkscale -O2 -fno-vectorize -fno-stripmine -fno-unroll-loops %s -o %t
+// RUN: %run %t 10000 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OPT
+
 /**		-*- C -*-
  *
  * \file	sum-vector-int.c
@@ -173,8 +190,6 @@ sum_t accum_true (num_t const * vals, num_t const n) {
   
 }
 
-
-
 /* ******************************
  * accum_wrong */
 /**
@@ -191,7 +206,27 @@ sum_t accum_wrong (num_t const * vals, num_t const n) {
 
 }
 
+// CHECK-LABEL: wrong
 
+// CHECK: Race detected on location [[SUM:[0-9a-f]+]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: * Read {{[0-9a-f]+}}
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: Common calling context
+// CHECK-O0-NEXT: Call {{[0-9a-f]+}}
+// CHECK-OPT-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK: Stack object
+
+// CHECK: Race detected on location [[SUM]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: * Write {{[0-9a-f]+}} accum_wrong
+// CHECK-O0: Spawn {{[0-9a-f]+}} accum_wrong
+// CHECK: Common calling context
+// CHECK-O0-NEXT: Call {{[0-9a-f]+}}
+// CHECK-OPT-NEXT: Parfor {{[0-9a-f]+}} accum_wrong
+// CHECK: Stack object
 
 /* ******************************
  * accum_lock */
@@ -215,7 +250,9 @@ sum_t accum_lock (num_t const * vals, num_t const n) {
 
 }
 
+// CHECK-LABEL: lock
 
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_spawn */
@@ -245,6 +282,9 @@ sum_t accum_spawn (num_t const * vals, num_t const n) {
 }
 
 
+// CHECK-LABEL: spawn
+
+// CHECK-NOT: Race detected on location
 
 /* ******************************
  * accum_wls */
@@ -273,3 +313,10 @@ sum_t accum_wls (num_t const * vals, num_t const n) {
 
   return sum;
 }
+
+// CHECK-LABEL: wls
+
+// CHECK-NOT: Race detected on location
+
+// CHECK: Cilksan detected 2 distinct races.
+// CHECK-NEXT: Cilksan suppressed {{[0-9]+}} duplicate race reports.

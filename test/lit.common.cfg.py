@@ -37,12 +37,6 @@ if compiler_id == "Clang":
   # We assume that sanitizers should provide good enough error
   # reports and stack traces even with minimal debug info.
   config.debug_info_flags = ["-gline-tables-only"]
-  if platform.system() == 'Windows':
-    # On Windows, use CodeView with column info instead of DWARF. Both VS and
-    # windbg do not behave well when column info is enabled, but users have
-    # requested it because it makes ASan reports more precise.
-    config.debug_info_flags.append("-gcodeview")
-    config.debug_info_flags.append("-gcolumn-info")
 elif compiler_id == 'GNU':
   config.cxx_mode_flags = ["-x c++"]
   config.debug_info_flags = ["-g"]
@@ -50,10 +44,6 @@ else:
   lit_config.fatal("Unsupported compiler id: %r" % compiler_id)
 # Add compiler ID to the list of available features.
 config.available_features.add(compiler_id)
-
-# If needed, add cflag for shadow scale.
-if config.asan_shadow_scale != '':
-  config.target_cflags += " -mllvm -asan-mapping-scale=" + config.asan_shadow_scale
 
 # BFD linker in 64-bit android toolchains fails to find libc++_shared.so, which
 # is a transitive shared library dependency (via asan runtime).
@@ -112,18 +102,7 @@ config.substitutions.append(
     (' clang', """\n\n*** Do not use 'clangXXX' in tests,
      instead define '%clangXXX' substitution in lit config. ***\n\n""") )
 
-if config.host_os == 'NetBSD':
-  nb_commands_dir = os.path.join(config.cilktools_src_root,
-                                 "test", "sanitizer_common", "netbsd_commands")
-  config.netbsd_noaslr_prefix = ('sh ' +
-                                 os.path.join(nb_commands_dir, 'run_noaslr.sh'))
-  config.netbsd_nomprotect_prefix = ('sh ' +
-                                     os.path.join(nb_commands_dir,
-                                                  'run_nomprotect.sh'))
-  config.substitutions.append( ('%run_nomprotect',
-                                config.netbsd_nomprotect_prefix) )
-else:
-  config.substitutions.append( ('%run_nomprotect', '%run') )
+config.substitutions.append( ('%run_nomprotect', '%run') )
 
 # Allow tests to be executed on a simulator or remotely.
 if config.emulator:
@@ -135,6 +114,8 @@ if config.emulator:
   config.substitutions.append( ('%device_rm', 'echo ') )
   config.compile_wrapper = ""
 elif config.host_os == 'Darwin' and config.apple_platform != "osx":
+  # NOTE: Cilktools should not be using this configuration code at this time.
+
   # Darwin tests can be targetting macOS, a device or a simulator. All devices
   # are declared as "ios", even for iOS derivatives (tvOS, watchOS). Similarly,
   # all simulators are "iossim". See the table below.
@@ -213,14 +194,7 @@ config.substitutions.append( ('CHECK-%os', ("CHECK-" + config.host_os)))
 # Define %arch to check for architecture-dependent output.
 config.substitutions.append( ('%arch', (config.host_arch)))
 
-if config.host_os == 'Windows':
-  # FIXME: This isn't quite right. Specifically, it will succeed if the program
-  # does not crash but exits with a non-zero exit code. We ought to merge
-  # KillTheDoctor and not --crash to make the latter more useful and remove the
-  # need for this substitution.
-  config.expect_crash = "not KillTheDoctor "
-else:
-  config.expect_crash = "not --crash "
+config.expect_crash = "not --crash "
 
 config.substitutions.append( ("%expect_crash ", config.expect_crash) )
 
@@ -282,7 +256,7 @@ if config.host_os == 'Darwin':
   except:
     pass
 
-  config.substitutions.append( ("%macos_min_target_10_11", "-mmacosx-version-min=10.11") )
+  config.substitutions.append( ("%macos_min_target_10_14", "-mmacosx-version-min=10.14") )
 
   isIOS = config.apple_platform != "osx"
   # rdar://problem/22207160
@@ -294,34 +268,34 @@ if config.host_os == 'Darwin':
     if config.target_arch == "i386":
       config.unsupported = True
 else:
-  config.substitutions.append( ("%macos_min_target_10_11", "") )
+  config.substitutions.append( ("%macos_min_target_10_14", "") )
   config.substitutions.append( ("%darwin_min_target_with_full_runtime_arc_support", "") )
 
-if config.android:
-  env = os.environ.copy()
-  if config.android_serial:
-    env['ANDROID_SERIAL'] = config.android_serial
-    config.environment['ANDROID_SERIAL'] = config.android_serial
+# if config.android:
+#   env = os.environ.copy()
+#   if config.android_serial:
+#     env['ANDROID_SERIAL'] = config.android_serial
+#     config.environment['ANDROID_SERIAL'] = config.android_serial
 
-  adb = os.environ.get('ADB', 'adb')
-  try:
-    android_api_level_str = subprocess.check_output([adb, "shell", "getprop", "ro.build.version.sdk"], env=env).rstrip()
-  except (subprocess.CalledProcessError, OSError):
-    lit_config.fatal("Failed to read ro.build.version.sdk (using '%s' as adb)" % adb)
-  try:
-    android_api_level = int(android_api_level_str)
-  except ValueError:
-    lit_config.fatal("Failed to read ro.build.version.sdk (using '%s' as adb): got '%s'" % (adb, android_api_level_str))
-  if android_api_level >= 26:
-    config.available_features.add('android-26')
-  if android_api_level >= 28:
-    config.available_features.add('android-28')
+#   adb = os.environ.get('ADB', 'adb')
+#   try:
+#     android_api_level_str = subprocess.check_output([adb, "shell", "getprop", "ro.build.version.sdk"], env=env).rstrip()
+#   except (subprocess.CalledProcessError, OSError):
+#     lit_config.fatal("Failed to read ro.build.version.sdk (using '%s' as adb)" % adb)
+#   try:
+#     android_api_level = int(android_api_level_str)
+#   except ValueError:
+#     lit_config.fatal("Failed to read ro.build.version.sdk (using '%s' as adb): got '%s'" % (adb, android_api_level_str))
+#   if android_api_level >= 26:
+#     config.available_features.add('android-26')
+#   if android_api_level >= 28:
+#     config.available_features.add('android-28')
 
-  # Prepare the device.
-  android_tmpdir = '/data/local/tmp/Output'
-  subprocess.check_call([adb, "shell", "mkdir", "-p", android_tmpdir], env=env)
-  for file in config.android_files_to_push:
-    subprocess.check_call([adb, "push", file, android_tmpdir], env=env)
+#   # Prepare the device.
+#   android_tmpdir = '/data/local/tmp/Output'
+#   subprocess.check_call([adb, "shell", "mkdir", "-p", android_tmpdir], env=env)
+#   for file in config.android_files_to_push:
+#     subprocess.check_call([adb, "push", file, android_tmpdir], env=env)
 
 if config.host_os == 'Linux':
   # detect whether we are using glibc, and which version
@@ -362,9 +336,6 @@ def is_linux_lto_supported():
 
   return True
 
-def is_windows_lto_supported():
-  return os.path.exists(os.path.join(config.llvm_tools_dir, 'lld-link.exe'))
-
 if config.host_os == 'Darwin' and is_darwin_lto_supported():
   config.lto_supported = True
   config.lto_launch = ["env", "DYLD_LIBRARY_PATH=" + config.llvm_shlib_dir]
@@ -376,10 +347,6 @@ elif config.host_os in ['Linux', 'FreeBSD', 'NetBSD'] and is_linux_lto_supported
     config.lto_flags = ["-fuse-ld=lld"]
   else:
     config.lto_flags = ["-fuse-ld=gold"]
-elif config.host_os == 'Windows' and is_windows_lto_supported():
-  config.lto_supported = True
-  config.lto_launch = []
-  config.lto_flags = ["-fuse-ld=lld"]
 else:
   config.lto_supported = False
 
@@ -410,11 +377,6 @@ except OSError as e:
 if re.search(r'ON', llvm_config_cmd.stdout.read().decode('ascii')):
   config.available_features.add('asserts')
 llvm_config_cmd.wait()
-
-# Sanitizer tests tend to be flaky on Windows due to PR24554, so add some
-# retries. We don't do this on otther platforms because it's slower.
-if platform.system() == 'Windows':
-  config.test_retry_attempts = 2
 
 # No throttling on non-Darwin platforms.
 lit_config.parallelism_groups['shadow-memory'] = None
@@ -465,14 +427,15 @@ if config.host_os == 'Linux':
 else:
   config.substitutions.append( ("%linux_static_libstdcplusplus", "") )
 
-config.default_sanitizer_opts = []
+## NOTE: I don't think any Cilktools use these options right now.
+config.default_cilktool_opts = []
 if config.host_os == 'Darwin':
   # On Darwin, we default to `abort_on_error=1`, which would make tests run
   # much slower. Let's override this and run lit tests with 'abort_on_error=0'.
-  config.default_sanitizer_opts += ['abort_on_error=0']
-  config.default_sanitizer_opts += ['log_to_syslog=0']
+  config.default_cilktool_opts += ['abort_on_error=0']
+  config.default_cilktool_opts += ['log_to_syslog=0']
 elif config.android:
-  config.default_sanitizer_opts += ['abort_on_error=0']
+  config.default_cilktool_opts += ['abort_on_error=0']
 
 # Allow tests to use REQUIRES=stable-runtime.  For use when you cannot use XFAIL
 # because the test hangs or fails on one configuration and not the other.
