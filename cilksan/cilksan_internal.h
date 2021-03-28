@@ -119,6 +119,10 @@ public:
 
   inline bool is_local_synced() const {
     FrameData_t *f = frame_stack.head();
+    // If this is a loop frame, assume we're not locally synced.
+    if (LOOP_FRAME == f->frame_data.frame_type)
+      return false;
+    // Otherwise check if this frame has nonempty P-bags.
     if (f->Pbags)
       for (unsigned i = 0; i < f->num_Pbags; ++i)
         if (f->Pbags[i])
