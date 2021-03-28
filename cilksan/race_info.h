@@ -489,6 +489,14 @@ protected:
   const bool ansi_;
 };
 
+static enum RaceType_t flipRaceType(enum RaceType_t type) {
+  switch(type) {
+  case RW_RACE: return WR_RACE;
+  case WW_RACE: return WW_RACE;
+  case WR_RACE: return RW_RACE;
+  }
+}
+
 // Class representing a single race.
 class RaceInfo_t {
   // const AccessLoc_t first_inst;  // instruction addr of the first access
@@ -510,19 +518,10 @@ public:
   ~RaceInfo_t() = default;
 
   bool is_equivalent_race(const RaceInfo_t& other) const {
-    /*
-    if( (type == other.type &&
-         first_inst == other.first_inst && second_inst == other.second_inst) ||
-        (first_inst == other.second_inst && second_inst == other.first_inst &&
-         ((type == RW_RACE && other.type == WR_RACE) ||
-          (type == WR_RACE && other.type == RW_RACE))) ) {
-      return true;
-    } */
-    // Angelina: It turns out that Cilkscreen does not care about the race
-    // types.  As long as the access instructions are the same, it's considered
-    // as a duplicate.
-    if (((first_acc == other.first_acc && second_acc == other.second_acc) ||
-         (first_acc == other.second_acc && second_acc == other.first_acc)) &&
+    if (((first_acc == other.first_acc && second_acc == other.second_acc &&
+          type == other.type) ||
+         (first_acc == other.second_acc && second_acc == other.first_acc &&
+          type == flipRaceType(other.type))) &&
         alloc_id == other.alloc_id) {
       return true;
     }
