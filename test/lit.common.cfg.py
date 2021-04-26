@@ -327,6 +327,9 @@ def is_linux_lto_supported():
   if not os.path.exists(os.path.join(config.llvm_shlib_dir, 'LLVMgold.so')):
     return False
 
+  if not config.gold_executable:
+    return False
+
   ld_cmd = subprocess.Popen([config.gold_executable, '--help'], stdout = subprocess.PIPE, env={'LANG': 'C'})
   ld_out = ld_cmd.stdout.read().decode()
   ld_cmd.wait()
