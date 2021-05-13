@@ -199,6 +199,9 @@ public:
     }
   }
 
+  // Interface to RR
+  static bool RunningUnderRR();
+
   // Methods for recording and reporting races
   const call_stack_t &get_current_call_stack() const {
     return call_stack;

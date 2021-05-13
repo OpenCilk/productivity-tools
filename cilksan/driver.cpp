@@ -2,9 +2,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <dlfcn.h>
 #include <map>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #include "checking.h"
 #include "cilksan_internal.h"
@@ -27,6 +29,8 @@ void *CilksanDoesNotSupportStaticLinkage() {
 
 // FILE io used to print error messages
 FILE *err_io = stderr;
+
+extern std::ofstream outf;
 
 // defined in libopencilk
 extern "C" int __cilkrts_is_initialized(void);
@@ -62,6 +66,9 @@ bool TOOL_INITIALIZED = false;
 
 // Flag to globally enable/disable instrumentation.
 bool instrumentation = false;
+
+// Flag to check if Cilksan is running under RR.
+bool is_running_under_rr = false;
 
 // Reentrant flag for enabling/disabling instrumentation; 0 enables checking.
 int checking_disabled = 0;
@@ -160,6 +167,28 @@ CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
 }
 
 ///////////////////////////////////////////////////////////////////////////
+// Interface to RR
+// int64_t CilkSanImpl_t::get_rr_time(void) const {
+static int64_t get_rr_time(void) {
+  assert(is_running_under_rr &&
+         "Requesting RR tick when not running under RR.");
+#ifdef __linux__
+  // Copied from rrcalls.h
+#define RR_CALL_BASE 1000
+#define SYS_rrcall_check_presence (RR_CALL_BASE + 8)
+#define SYS_rrcall_current_time (RR_CALL_BASE + 11)
+  int64_t res = syscall(SYS_rrcall_current_time, 0, 0, 0, 0, 0, 0, 0);
+  if (-1 == res) {
+    perror("Error calling rrcall_current_time");
+    return -1;
+  }
+  return res;
+#else
+  return 0;
+#endif // __linux__
+}
+
+///////////////////////////////////////////////////////////////////////////
 // Tool initialization and deinitialization
 
 // called upon process exit
@@ -212,6 +241,13 @@ CilkSanImpl_t::~CilkSanImpl_t() {
 }
 
 static void init_internal() {
+  is_running_under_rr = CilkSanImpl_t::RunningUnderRR();
+  const char *envstr = getenv("CILKSAN_OUT");
+  if (envstr)
+    outf.open(envstr);
+  else if (is_running_under_rr)
+    outf.open("cilksan_races.out");
+
   if (__cilkrts_is_initialized()) {
     __cilkrts_internal_set_nworkers(1);
     __cilkrts_internal_set_force_reduce(1);
@@ -689,6 +725,9 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
 
+  if (is_running_under_rr)
+    load_id = static_cast<csi_id_t>(get_rr_time());
+
   // Record this read.
   if (prop.is_atomic) {
     CilkSanImpl.do_atomic_read(load_id, (uintptr_t)addr, size, prop.alignment,
@@ -726,6 +765,9 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     load_pc[load_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
+
+  if (is_running_under_rr)
+    load_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this read.
   if (prop.is_atomic) {
@@ -765,6 +807,9 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
 
+  if (is_running_under_rr)
+    store_id = static_cast<csi_id_t>(get_rr_time());
+
   // Record this write.
   if (prop.is_atomic) {
     CilkSanImpl.do_atomic_write(store_id, (uintptr_t)addr, size, prop.alignment,
@@ -802,6 +847,9 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     store_pc[store_id] = CALLERPC;
 
   DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
+
+  if (is_running_under_rr)
+    store_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this write.
   if (prop.is_atomic) {

@@ -1,4 +1,5 @@
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -12,6 +13,11 @@
 #include "csan.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
+
+extern bool is_running_under_rr;
+
+std::ostream &outs = std::cerr;
+std::ofstream outf;
 
 // Mappings from CSI ID to associated program counter.
 uintptr_t *call_pc = nullptr;
@@ -362,12 +368,20 @@ bool CilkSanImpl_t::PauseOnRace() {
   return false;
 }
 
+bool CilkSanImpl_t::RunningUnderRR() {
+  // Check if we're running under RR
+  char *e = getenv("RUNNING_UNDER_RR");
+  if (e && 0 == strcmp(e, "1"))
+    return true;
+  return false;
+}
+
 // static void print_race_info(const RaceInfo_t& race) {
 void RaceInfo_t::print(const AccessLoc_t &first_inst,
                        const AccessLoc_t &second_inst,
                        const AccessLoc_t &alloc_inst,
                        const Decorator &d) const {
-  std::cerr << d.Bold() << d.Error() << "Race detected on location "
+  outs << d.Bold() << d.Error() << "Race detected on location "
     // << (is_on_stack(race.addr) ? "stack address " : "address ")
             << std::hex << addr << d.Default() << std::dec << "\n";
 
@@ -502,37 +516,32 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
       second_call_stack_size);
 
   // Print the two accesses involved in the race
-  std::cerr << d.Bold() << "*  " << d.Default() << first_acc_info << "\n";
+  outs << d.Bold() << "*  " << d.Default() << first_acc_info << "\n";
   for (int i = first_call_stack_size - 1; i >= divergence; --i)
-    std::cerr << "+   " << get_info_on_call(first_call_stack[i].first, d)
-              << "\n";
-  std::cerr << "|" << d.Bold() << "* " << d.Default() << second_acc_info
-            << "\n";
+    outs << "+   " << get_info_on_call(first_call_stack[i].first, d) << "\n";
+  outs << "|" << d.Bold() << "* " << d.Default() << second_acc_info << "\n";
   for (int i = second_call_stack_size - 1; i >= divergence; --i)
-    std::cerr << "|+  " << get_info_on_call(second_call_stack[i].first, d)
-              << "\n";
+    outs << "|+  " << get_info_on_call(second_call_stack[i].first, d) << "\n";
 
   // Print the common calling context
   if (divergence > 0) {
-    std::cerr << "\\| Common calling context" << "\n";
+    outs << "\\| Common calling context\n";
     for (int i = divergence - 1; i >= 0; --i)
-      std::cerr << " +  " << get_info_on_call(first_call_stack[i].first, d)
-                << "\n";
+      outs << " +  " << get_info_on_call(first_call_stack[i].first, d) << "\n";
   }
 
   // Print the allocation
   if (alloc_inst.isValid()) {
-    std::cerr << "   Allocation context" << "\n";
+    outs << "   Allocation context\n";
     const csi_id_t alloca_id = alloc_inst.getID();
-    std::cerr << "    " << get_info_on_alloca(alloca_id, d) << "\n";
+    outs << "    " << get_info_on_alloca(alloca_id, d) << "\n";
 
     auto alloc_call_stack = get_call_stack(alloc_inst);
     for (int i = alloc_inst.getCallStackSize() - 1; i >= 0; --i)
-      std::cerr << "    " << get_info_on_call(alloc_call_stack[i].first, d)
-                << "\n";
+      outs << "    " << get_info_on_call(alloc_call_stack[i].first, d) << "\n";
   }
 
-  std::cerr << "\n";
+  outs << "\n";
 }
 
 // Log the race detected
@@ -540,6 +549,7 @@ void CilkSanImpl_t::report_race(
     const AccessLoc_t &first_inst, const AccessLoc_t &second_inst,
     const AccessLoc_t &alloc_inst, uintptr_t addr,
     enum RaceType_t race_type) {
+  static int last_race_count = 0;
   bool found = false;
   // TODO: Make the key computation consistent with is_equivalent_race().
   uint64_t key = first_inst < second_inst ?
@@ -549,7 +559,7 @@ void CilkSanImpl_t::report_race(
   std::pair<RaceMap_t::iterator, RaceMap_t::iterator> range;
   range = races_found.equal_range(key);
   while (range.first != range.second) {
-    const RaceInfo_t& in_map = range.first->second;
+    const RaceInfo_t &in_map = range.first->second;
     if (race.is_equivalent_race(in_map)) {
       found = true;
       break;
@@ -560,7 +570,21 @@ void CilkSanImpl_t::report_race(
     duplicated_races++;
   } else {
     // have to get the info before user program exits
-    race.print(first_inst, second_inst, alloc_inst, Decorator(color_report));
+    if (is_running_under_rr) {
+      if (outf.is_open())
+        outf << "race " << std::hex << addr << std::dec << " "
+             << first_inst.getID() << " " << second_inst.getID() << "\n";
+      if (!last_race_count) {
+        outs << "Cilksan detected " << get_num_races_found()
+             << " racing pairs.";
+        last_race_count = get_num_races_found();
+      } else if (get_num_races_found() >= 17 * last_race_count / 16) {
+        outs << "\rCilksan detected " << get_num_races_found()
+             << " racing pairs.";
+        last_race_count = get_num_races_found();
+      }
+    } else
+      race.print(first_inst, second_inst, alloc_inst, Decorator(color_report));
     races_found.insert(std::make_pair(key, race));
     if (PauseOnRace())
       // Raise a SIGTRAP to let the user examine the state of the program at
@@ -580,11 +604,11 @@ int CilkSanImpl_t::get_num_races_found() {
 }
 
 void CilkSanImpl_t::print_race_report() {
-  std::cerr << "\n";
-  std::cerr << "Cilksan detected " << get_num_races_found()
-            << " distinct races.\n";
-  std::cerr << "Cilksan suppressed " << duplicated_races
-            << " duplicate race reports.\n";
-  std::cerr << "\n";
+  outs << "\n";
+  outs << "Cilksan detected " << get_num_races_found() << " distinct races.\n";
+  if (!is_running_under_rr) {
+    outs << "Cilksan suppressed " << duplicated_races
+         << " duplicate race reports.\n";
+    outs << "\n";
+  }
 }
-
