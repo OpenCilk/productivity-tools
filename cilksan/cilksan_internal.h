@@ -23,9 +23,7 @@ class SimpleShadowMem;
 // Top-level class implementing the tool.
 class CilkSanImpl_t {
 public:
-  CilkSanImpl_t() : color_report(ColorizeReports()) {
-    TOOL_INITIALIZED = true;
-  }
+  CilkSanImpl_t() : color_report(ColorizeReports()) { TOOL_INITIALIZED = true; }
   ~CilkSanImpl_t();
 
   MALineAllocator &getMALineAllocator(unsigned Idx) {

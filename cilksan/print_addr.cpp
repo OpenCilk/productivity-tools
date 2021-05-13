@@ -502,16 +502,13 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
       second_call_stack_size);
 
   // Print the two accesses involved in the race
-  std::cerr << d.Bold() << "*  " << d.Default() << first_acc_info
-            << "\n";
-  for (int i = first_call_stack_size - 1;
-       i >= divergence; --i)
+  std::cerr << d.Bold() << "*  " << d.Default() << first_acc_info << "\n";
+  for (int i = first_call_stack_size - 1; i >= divergence; --i)
     std::cerr << "+   " << get_info_on_call(first_call_stack[i].first, d)
               << "\n";
   std::cerr << "|" << d.Bold() << "* " << d.Default() << second_acc_info
             << "\n";
-  for (int i = second_call_stack_size - 1;
-       i >= divergence; --i)
+  for (int i = second_call_stack_size - 1; i >= divergence; --i)
     std::cerr << "|+  " << get_info_on_call(second_call_stack[i].first, d)
               << "\n";
 

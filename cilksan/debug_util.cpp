@@ -4,6 +4,7 @@
 #include <strings.h>
 #include <signal.h>
 #include "debug_util.h"
+#include "driver.h"
 
 /*
   static void print_bt(FILE *f) {
@@ -32,13 +33,13 @@ void debug_printf(const char *fmt, ...) {
 __attribute__((noreturn))
 void die(const char *fmt, ...) {
   std::va_list l;
-  std::fprintf(stderr, "=================================================\n");
-  std::fprintf(stderr, "Cilksan: fatal error\n");
+  std::fprintf(err_io, "=================================================\n");
+  std::fprintf(err_io, "Cilksan: fatal error\n");
 
   va_start(l, fmt);
-  std::vfprintf(stderr, fmt, l);
-  std::fprintf(stderr, "=================================================\n");
-  fflush(stderr);
+  std::vfprintf(err_io, fmt, l);
+  std::fprintf(err_io, "=================================================\n");
+  fflush(err_io);
   va_end(l);
   raise(SIGTRAP);
   std::exit(1);

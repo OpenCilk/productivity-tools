@@ -129,7 +129,8 @@ CILKSAN_API void __csan_set_MAAP(MAAP_t val, csi_id_t id) {
 }
 
 CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%x, %d, %d)\n", ptr, id, idx);
+  DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%p, %d, %d)\n", (void *)ptr, id,
+            idx);
   // We presume that __csan_get_MAAP runs early in the function, so if
   // instrumentation is disabled, it's disabled for the whole function.
   if (!should_check()) {
@@ -216,7 +217,7 @@ static void init_internal() {
     __cilkrts_internal_set_force_reduce(1);
   } else {
     // Force the number of Cilk workers to be 1.
-    char *e = getenv("CILK_NWORKERS");
+    const char *e = getenv("CILK_NWORKERS");
     if (!e || 0 != strcmp(e, "1")) {
       if (setenv("CILK_NWORKERS", "1", 1)) {
         fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");

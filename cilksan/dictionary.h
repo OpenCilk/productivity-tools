@@ -20,17 +20,28 @@ class MemoryAccess_t {
   static constexpr csi_id_t TYPE_MASK = ((1UL << VERSION_SHIFT) - 1) & ~ID_MASK;
   static constexpr csi_id_t UNKNOWN_CSI_ACC_ID = UNKNOWN_CSI_ID & ID_MASK;
 
+  using DJS_t = DisjointSet_t<SPBagInterface *>;
+
+  static csi_id_t makeTypedID(csi_id_t acc_id, MAType_t type) {
+    return (acc_id & ID_MASK) | (static_cast<csi_id_t>(type) << TYPE_SHIFT);
+  }
 public:
-  DisjointSet_t<SPBagInterface *> *func = nullptr;
+  DJS_t *func = nullptr;
   csi_id_t ver_acc_id = UNKNOWN_CSI_ACC_ID;
 
   // Default constructor
   MemoryAccess_t() {}
-  // Constructor
-  MemoryAccess_t(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
-                 MAType_t type)
-      : func(func), ver_acc_id((acc_id & ID_MASK) |
-                               (static_cast<csi_id_t>(type) << TYPE_SHIFT)) {
+  // Constructors
+  MemoryAccess_t(DJS_t *func, csi_id_t acc_id, MAType_t type)
+      : func(func), ver_acc_id(makeTypedID(acc_id, type)) {
+    if (func) {
+      func->inc_ref_count();
+      ver_acc_id |= static_cast<csi_id_t>(func->get_node()->get_version())
+                    << VERSION_SHIFT;
+    }
+  }
+  MemoryAccess_t(DJS_t *func, csi_id_t typed_id)
+      : func(func), ver_acc_id(typed_id) {
     if (func) {
       func->inc_ref_count();
       ver_acc_id |= static_cast<csi_id_t>(func->get_node()->get_version())
@@ -69,9 +80,7 @@ public:
   }
 
   // Get the disjoint-set node for the function containing this memory access.
-  DisjointSet_t<SPBagInterface *> *getFunc() const {
-    return func;
-  }
+  DJS_t *getFunc() const { return func; }
 
   // Get the CSI ID for this memory access.
   csi_id_t getAccID() const {
@@ -99,8 +108,7 @@ public:
   // Set the fields of this MemoryAccess_t directly.  This method is used to
   // avoid unnecessary updates to reference counts that may be incurred by using
   // the copy contructor.
-  void set(DisjointSet_t<SPBagInterface *> *func, csi_id_t acc_id,
-           MAType_t type) {
+  void set(DJS_t *func, csi_id_t acc_id, MAType_t type) {
     if (this->func != func) {
       if (func)
         func->inc_ref_count();
@@ -108,8 +116,23 @@ public:
         this->func->dec_ref_count();
       this->func = func;
     }
-    ver_acc_id = (acc_id & ID_MASK) |
-                     (static_cast<csi_id_t>(type) << TYPE_SHIFT);
+    ver_acc_id = makeTypedID(acc_id, type);
+    if (func) {
+      cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
+      ver_acc_id |= static_cast<csi_id_t>(
+                        static_cast<SBag_t *>(func->get_node())->get_version())
+                    << VERSION_SHIFT;
+    }
+  }
+  void set(DJS_t *func, csi_id_t typed_id) {
+    if (this->func != func) {
+      if (func)
+        func->inc_ref_count();
+      if (this->func)
+        this->func->dec_ref_count();
+      this->func = func;
+    }
+    ver_acc_id = typed_id;
     if (func) {
       cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
       ver_acc_id |= static_cast<csi_id_t>(
@@ -158,7 +181,6 @@ public:
     ver_acc_id = copy.ver_acc_id;
   }
 
-  // TODO: Get rid of PC from these comparisons
   bool operator==(const MemoryAccess_t &that) const {
     return (func == that.func);
   }

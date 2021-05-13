@@ -18,12 +18,12 @@ static AddrMap_t<LockID_t> lock_ids;
 static inline void emit_acquire_release_warning(bool is_aquire,
                                                 const void *mutex) {
   if (is_aquire)
-    fprintf(stderr,
+    fprintf(err_io,
             "Cilksan Warning: Cannot model lock-acquire of unknown lock at "
             "location %p\n",
             mutex);
   else
-    fprintf(stderr,
+    fprintf(err_io,
             "Cilksan Warning: Cannot model lock-release of unknown lock at "
             "location %p\n",
             mutex);
