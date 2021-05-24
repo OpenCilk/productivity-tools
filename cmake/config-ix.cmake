@@ -1,4 +1,3 @@
-include(CMakePushCheckState)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 include(CheckIncludeFiles)
@@ -55,27 +54,8 @@ check_cxx_compiler_flag("-Werror -msse4.2"   CILKTOOLS_HAS_MSSE4_2_FLAG)
 check_cxx_compiler_flag(--sysroot=.          CILKTOOLS_HAS_SYSROOT_FLAG)
 check_cxx_compiler_flag("-Werror -mcrc"      CILKTOOLS_HAS_MCRC_FLAG)
 check_cxx_compiler_flag(-fno-partial-inlining CILKTOOLS_HAS_FNO_PARTIAL_INLINING_FLAG)
-
 # Check for -fopencilk flag
-cmake_push_check_state()
-if (NOT APPLE)
-  find_library(LIBOPENCILK opencilk
-    PATHS
-    ${CILKTOOLS_OUTPUT_DIR}/lib/${LLVM_DEFAULT_TARGET_TRIPLE}
-    ${CILKTOOLS_INSTALL_PATH}/lib/${LLVM_DEFAULT_TARGET_TRIPLE})
-else()
-  find_library(LIBOPENCILK opencilk
-    PATHS
-    ${CILKTOOLS_OUTPUT_DIR}/lib/${CILKTOOLS_OS_DIR}
-    ${CILKTOOLS_INSTALL_PATH}/lib/${CILKTOOLS_OS_DIR})
-endif()
-if (IS_ABSOLUTE ${LIBOPENCILK})
-  list(APPEND CMAKE_REQUIRED_LIBRARIES ${LIBOPENCILK})
-else()
-  list(APPEND CMAKE_REQUIRED_LINK_OPTIONS -fopencilk)
-endif()
 check_cxx_compiler_flag(-fopencilk CILKTOOLS_HAS_CILK_FLAG)
-cmake_pop_check_state()
 
 if (CILKTOOLS_HAS_CILK_FLAG OR TARGET cheetah OR HAVE_CHEETAH)
   set(CILKTOOLS_HAS_CILK 1)

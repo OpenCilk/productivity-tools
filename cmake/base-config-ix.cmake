@@ -1,4 +1,4 @@
-# The CompilerRT build system requires CMake version 2.8.8 or higher in order
+# The Cilktools build system requires CMake version 2.8.8 or higher in order
 # to use its support for building convenience "libraries" as a collection of
 # .o files. This is particularly useful in producing larger, more complex
 # runtime libraries.
@@ -237,7 +237,7 @@ macro(test_targets)
       test_target_arch(wasm32 "" "--target=wasm32-unknown-unknown")
     elseif("${CILKTOOLS_DEFAULT_TARGET_ARCH}" MATCHES "wasm64")
       test_target_arch(wasm64 "" "--target=wasm64-unknown-unknown")
-    elseif("${COMPILER_RT_DEFAULT_TARGET_ARCH}" MATCHES "ve")
+    elseif("${CILKTOOLS_DEFAULT_TARGET_ARCH}" MATCHES "ve")
       test_target_arch(ve "__ve__" "--target=ve-unknown-none")
     endif()
     set(CILKTOOLS_OS_SUFFIX "")
