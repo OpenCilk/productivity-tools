@@ -471,7 +471,7 @@ function(add_cilktools_test test_suite test_name arch)
 
   # Only add CMAKE_EXE_LINKER_FLAGS when in a standalone bulid.
   # Or else CMAKE_EXE_LINKER_FLAGS contains flags for build compiler of Clang/llvm.
-  # This might not be the same as what the COMPILER_RT_TEST_COMPILER supports.
+  # This might not be the same as what the CILKTOOLS_TEST_COMPILER supports.
   # eg: the build compiler use lld linker and we build clang with default ld linker
   # then to be tested clang will complain about lld options like --color-diagnostics.
   if(NOT MSVC AND CILKTOOLS_STANDALONE_BUILD)
