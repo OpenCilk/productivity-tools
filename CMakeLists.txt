@@ -1,15 +1,14 @@
 # CMake build for Cilktools.
+#
+# An important constraint of the build is that it only produces libraries
+# based on the ability of the host toolchain to target various platforms.
 
-cmake_minimum_required(VERSION 3.4.3)
-
-if(POLICY CMP0068)
-  cmake_policy(SET CMP0068 NEW)
-  set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
-endif()
+cmake_minimum_required(VERSION 3.13.4)
 
 # Check if cilktools is built as a standalone project.
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR CILKTOOLS_STANDALONE_BUILD)
   project(Cilktools CXX C)
+  set(CILKTOOLS_STANDALONE_BUILD TRUE)
   set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
   set(PACKAGE_NAME Cilktools)
@@ -55,34 +54,19 @@ if (CILKTOOLS_STANDALONE_BUILD)
     set_target_properties(intrinsics_gen PROPERTIES FOLDER "Cilktools Misc")
   endif()
 
-  if(CMAKE_VERSION VERSION_LESS 3.12)
-    # Find Python interpreter.
-    include(FindPythonInterp)
-    if(NOT PYTHONINTERP_FOUND)
-      message(FATAL_ERROR "
-        Unable to find Python interpreter required testing. Please install Python
-        or specify the PYTHON_EXECUTABLE CMake variable.")
+  find_package(Python3 COMPONENTS Interpreter)
+  if(NOT Python3_Interpreter_FOUND)
+    message(WARNING "Python3 not found, using python2 as a fallback")
+    find_package(Python2 COMPONENTS Interpreter REQUIRED)
+    if(Python2_VERSION VERSION_LESS 2.7)
+      message(SEND_ERROR "Python 2.7 or newer is required")
     endif()
 
+    # Treat python2 as python3
     add_executable(Python3::Interpreter IMPORTED)
     set_target_properties(Python3::Interpreter PROPERTIES
-      IMPORTED_LOCATION ${PYTHON_EXECUTABLE})
-    set(Python3_EXECUTABLE ${PYTHON_EXECUTABLE})
-  else()
-    find_package(Python3 COMPONENTS Interpreter)
-    if(NOT Python3_Interpreter_FOUND)
-      message(WARNING "Python3 not found, using python2 as a fallback")
-      find_package(Python2 COMPONENTS Interpreter REQUIRED)
-      if(Python2_VERSION VERSION_LESS 2.7)
-        message(SEND_ERROR "Python 2.7 or newer is required")
-      endif()
-
-      # Treat python2 as python3
-      add_executable(Python3::Interpreter IMPORTED)
-      set_target_properties(Python3::Interpreter PROPERTIES
-        IMPORTED_LOCATION ${Python2_EXECUTABLE})
-      set(Python3_EXECUTABLE ${Python2_EXECUTABLE})
-    endif()
+      IMPORTED_LOCATION ${Python2_EXECUTABLE})
+    set(Python3_EXECUTABLE ${Python2_EXECUTABLE})
   endif()
 
   # Ensure that fat libraries are built correctly on Darwin
@@ -107,6 +91,8 @@ if ("${CILKTOOLS_DEFAULT_TARGET_TRIPLE}" MATCHES ".*hf$")
 endif()
 if ("${CILKTOOLS_DEFAULT_TARGET_TRIPLE}" MATCHES ".*android.*")
   set(ANDROID 1)
+  string(REGEX MATCH "-target(=| +)[^ ]+android[a-z]*([0-9]+)" ANDROID_API_LEVEL "${CMAKE_C_FLAGS}")
+  set(ANDROID_API_LEVEL ${CMAKE_MATCH_2})
 endif()
 pythonize_bool(ANDROID)
 
@@ -314,7 +300,7 @@ macro(append_libcxx_libs var)
       list(APPEND ${var}_LIBRARIES cxxabi_shared)
     endif()
   else()
-    append_list_if(COMPILER_RT_HAS_LIBCXX c++ ${var}_LIBRARIES)
+    append_list_if(CILKTOOLS_HAS_LIBCXX c++ ${var}_LIBRARIES)
   endif()
 endmacro()
 
@@ -323,13 +309,13 @@ if (SANITIZER_CXX_ABI_LIBNAME STREQUAL "libc++")
 elseif (SANITIZER_CXX_ABI_LIBNAME STREQUAL "libcxxabi")
   list(APPEND SANITIZER_CXX_ABI_LIBRARIES "c++abi")
 elseif (SANITIZER_CXX_ABI_LIBNAME STREQUAL "libstdc++")
-  append_list_if(COMPILER_RT_HAS_LIBSTDCXX stdc++ SANITIZER_CXX_ABI_LIBRARIES)
+  append_list_if(CILKTOOLS_HAS_LIBSTDCXX stdc++ SANITIZER_CXX_ABI_LIBRARIES)
 endif()
 
 if (SANITIZER_TEST_CXX_LIBNAME STREQUAL "libc++")
   append_libcxx_libs(SANITIZER_TEST_CXX)
 elseif (SANITIZER_TEST_CXX_LIBNAME STREQUAL "libstdc++")
-  append_list_if(COMPILER_RT_HAS_LIBSTDCXX stdc++ SANITIZER_TEST_CXX_LIBRARIES)
+  append_list_if(CILKTOOLS_HAS_LIBSTDCXX stdc++ SANITIZER_TEST_CXX_LIBRARIES)
 endif()
 
 # Warnings to turn off for all libraries, not just sanitizers.

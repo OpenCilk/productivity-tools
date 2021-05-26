@@ -102,7 +102,7 @@ check_cxx_compiler_flag(/wd4800 CILKTOOLS_HAS_WD4800_FLAG)
 check_symbol_exists(__func__ "" CILKTOOLS_HAS_FUNC_SYMBOL)
 
 # Includes.
-check_include_files("sys/auxv.h" COMPILER_RT_HAS_AUXV)
+check_include_files("sys/auxv.h" CILKTOOLS_HAS_AUXV)
 
 # Libraries.
 check_library_exists(dl dlopen "" CILKTOOLS_HAS_LIBDL)
