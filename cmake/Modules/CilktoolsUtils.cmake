@@ -258,28 +258,31 @@ macro(load_llvm_config)
       set(CILKTOOLS_HAS_LLVMXRAY TRUE)
     endif()
 
-    set(CILKTOOLS_HAS_LLVMTESTINGSUPPORT FALSE)
-    execute_process(
-      COMMAND ${LLVM_CONFIG_PATH} "--ldflags" "--libs" "testingsupport"
-      RESULT_VARIABLE HAD_ERROR
-      OUTPUT_VARIABLE CONFIG_OUTPUT
-      ERROR_QUIET)
-    if (HAD_ERROR)
-      message(WARNING "llvm-config finding testingsupport failed with status ${HAD_ERROR}")
-    elseif(CILKTOOLS_INCLUDE_TESTS)
-      string(REGEX REPLACE "[ \t]*[\r\n]+[ \t]*" ";" CONFIG_OUTPUT ${CONFIG_OUTPUT})
-      list(GET CONFIG_OUTPUT 0 LDFLAGS)
-      list(GET CONFIG_OUTPUT 1 LIBLIST)
-      if (LIBLIST STREQUAL "")
-        message(WARNING "testingsupport library not installed, some tests will be skipped")
-      else()
-        file(TO_CMAKE_PATH "${LDFLAGS}" LDFLAGS)
-        file(TO_CMAKE_PATH "${LIBLIST}" LIBLIST)
-        set(LLVM_TESTINGSUPPORT_LDFLAGS ${LDFLAGS} CACHE STRING "Linker flags for LLVMTestingSupport library")
-        set(LLVM_TESTINGSUPPORT_LIBLIST ${LIBLIST} CACHE STRING "Library list for LLVMTestingSupport")
-        set(CILKTOOLS_HAS_LLVMTESTINGSUPPORT TRUE)
-      endif()
-    endif()
+    # CILKTOOLS_HAS_LLVMTESTINGSUPPORT is currently unused, and this
+    # test triggers a CMake warning.  Removing this test for now.
+    #
+    # set(CILKTOOLS_HAS_LLVMTESTINGSUPPORT FALSE)
+    # execute_process(
+    #   COMMAND ${LLVM_CONFIG_PATH} "--ldflags" "--libs" "testingsupport"
+    #   RESULT_VARIABLE HAD_ERROR
+    #   OUTPUT_VARIABLE CONFIG_OUTPUT
+    #   ERROR_QUIET)
+    # if (HAD_ERROR)
+    #   message(WARNING "llvm-config finding testingsupport failed with status ${HAD_ERROR}")
+    # elseif(CILKTOOLS_INCLUDE_TESTS)
+    #   string(REGEX REPLACE "[ \t]*[\r\n]+[ \t]*" ";" CONFIG_OUTPUT ${CONFIG_OUTPUT})
+    #   list(GET CONFIG_OUTPUT 0 LDFLAGS)
+    #   list(GET CONFIG_OUTPUT 1 LIBLIST)
+    #   if (LIBLIST STREQUAL "")
+    #     message(WARNING "testingsupport library not installed, some tests will be skipped")
+    #   else()
+    #     file(TO_CMAKE_PATH "${LDFLAGS}" LDFLAGS)
+    #     file(TO_CMAKE_PATH "${LIBLIST}" LIBLIST)
+    #     set(LLVM_TESTINGSUPPORT_LDFLAGS ${LDFLAGS} CACHE STRING "Linker flags for LLVMTestingSupport library")
+    #     set(LLVM_TESTINGSUPPORT_LIBLIST ${LIBLIST} CACHE STRING "Library list for LLVMTestingSupport")
+    #     set(CILKTOOLS_HAS_LLVMTESTINGSUPPORT TRUE)
+    #   endif()
+    # endif()
 
     # Make use of LLVM CMake modules.
     # --cmakedir is supported since llvm r291218 (4.0 release)
