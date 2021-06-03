@@ -87,9 +87,9 @@ config.substitutions.append( ("%clang_cilksan ", build_invocation(clang_cilksan_
 config.substitutions.append( ("%clangxx_cilksan ", build_invocation(clang_cilksan_cxxflags)) )
 if config.cilksan_dynamic:
   if config.host_os in ['Linux', 'FreeBSD', 'NetBSD', 'SunOS']:
-    shared_libcilksan_path = os.path.join(config.compiler_rt_libdir, "libclang_rt.cilksan{}.so".format(config.target_suffix))
+    shared_libcilksan_path = os.path.join(config.cilktools_libdir, "libclang_rt.cilksan{}.so".format(config.target_suffix))
   elif config.host_os == 'Darwin':
-    shared_libcilksan_path = os.path.join(config.compiler_rt_libdir, 'libclang_rt.cilksan_{}_dynamic.dylib'.format(config.apple_platform))
+    shared_libcilksan_path = os.path.join(config.cilktools_libdir, 'libclang_rt.cilksan_{}_dynamic.dylib'.format(config.apple_platform))
   else:
     lit_config.warning('%shared_libcilksan substitution not set but dynamic Cilksan is available.')
     shared_libcilksan_path = None
