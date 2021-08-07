@@ -616,12 +616,20 @@ CILKSAN_API void __csan_task_exit(const csi_id_t task_exit_id,
 
 // Hook called at the continuation of a detach, i.e., a task spawn.
 CILKSAN_API void __csan_detach_continue(const csi_id_t detach_continue_id,
-                                        const csi_id_t detach_id) {
+                                        const csi_id_t detach_id,
+                                        const unsigned sync_reg,
+                                        const detach_continue_prop_t prop) {
   if (!should_check())
     return;
 
   DBG_TRACE(DEBUG_CALLBACK, "__csan_detach_continue(%ld)\n",
             detach_id);
+
+  // OpenCilk semantics dictate that an implicit sync occurs upon entering the
+  // unwind destination of a detach.
+  if (prop.is_unwind) {
+    CilkSanImpl.do_sync(sync_reg);
+  }
 
   if (!CilkSanImpl.handle_loop()) {
     CilkSanImpl.record_call_return(detach_id, SPAWN);
