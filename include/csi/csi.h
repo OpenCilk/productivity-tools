@@ -113,8 +113,10 @@ typedef struct {
 typedef struct {
   // The call is indirect.
   unsigned is_indirect : 1;
+  // For an after_call hook, the after_call hook is in an unwind.
+  unsigned is_unwind : 1;
   // Pad struct to 64 total bits.
-  uint64_t _padding : 63;
+  uint64_t _padding : 62;
 } call_prop_t;
 
 typedef struct {
