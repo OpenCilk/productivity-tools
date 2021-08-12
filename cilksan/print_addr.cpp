@@ -544,6 +544,14 @@ void RaceInfo_t::print(const AccessLoc_t &first_inst,
   outs << "\n";
 }
 
+static void open_outf(void) {
+  const char *envstr = getenv("CILKSAN_OUT");
+  if (envstr)
+    outf.open(envstr);
+  else if (is_running_under_rr)
+    outf.open("cilksan_races.out");
+}
+
 // Log the race detected
 void CilkSanImpl_t::report_race(
     const AccessLoc_t &first_inst, const AccessLoc_t &second_inst,
@@ -571,9 +579,12 @@ void CilkSanImpl_t::report_race(
   } else {
     // have to get the info before user program exits
     if (is_running_under_rr) {
-      if (outf.is_open())
-        outf << "race " << std::hex << addr << std::dec << " "
-             << first_inst.getID() << " " << second_inst.getID() << "\n";
+      // Open outf if it is not open already.
+      if (!outf.is_open())
+        open_outf();
+
+      outf << "race " << std::hex << addr << std::dec << " "
+           << first_inst.getID() << " " << second_inst.getID() << "\n";
       if (!last_race_count) {
         outs << "Cilksan detected " << get_num_races_found()
              << " racing pairs.";

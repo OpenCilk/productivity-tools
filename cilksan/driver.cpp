@@ -30,8 +30,6 @@ void *CilksanDoesNotSupportStaticLinkage() {
 // FILE io used to print error messages
 FILE *err_io = stderr;
 
-extern std::ofstream outf;
-
 // defined in libopencilk
 extern "C" int __cilkrts_is_initialized(void);
 extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
@@ -168,7 +166,6 @@ CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
 
 ///////////////////////////////////////////////////////////////////////////
 // Interface to RR
-// int64_t CilkSanImpl_t::get_rr_time(void) const {
 static int64_t get_rr_time(void) {
   assert(is_running_under_rr &&
          "Requesting RR tick when not running under RR.");
@@ -242,11 +239,8 @@ CilkSanImpl_t::~CilkSanImpl_t() {
 
 static void init_internal() {
   is_running_under_rr = CilkSanImpl_t::RunningUnderRR();
-  const char *envstr = getenv("CILKSAN_OUT");
-  if (envstr)
-    outf.open(envstr);
-  else if (is_running_under_rr)
-    outf.open("cilksan_races.out");
+  if (is_running_under_rr && get_rr_time() < 0)
+    is_running_under_rr = false;
 
   if (__cilkrts_is_initialized()) {
     __cilkrts_internal_set_nworkers(1);
@@ -265,7 +259,7 @@ static void init_internal() {
     e = getenv("CILK_FORCE_REDUCE");
     if (!e || 0 != strcmp(e, "1")) {
       if (setenv("CILK_FORCE_REDUCE", "1", 1)) {
-        fprintf(err_io, "Error setting CILKS_FORCE_REDUCE to be 1\n");
+        fprintf(err_io, "Error setting CILK_FORCE_REDUCE to be 1\n");
         exit(1);
       }
     }
