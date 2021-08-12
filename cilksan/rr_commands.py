@@ -4,6 +4,8 @@ races = []
 race_info = []
 current_race = [-1, 0, 0]
 
+no_races_error_msg = "No races recorded.  Use 'cilksan load-races FILENAME' to load races from FILENAME."
+
 def time_for_race(race_id):
     return race_info[race_id][0]
 
@@ -16,11 +18,45 @@ def get_time_for_current_race():
     else:
         return time_for_race(races[current_race[0]][current_race[1]])
 
-class LoadRacesCommand(gdb.Command):
-    """Load Cilksan-detected determinacy races."""
+class CilksanPrefixCommand(gdb.Command):
+    """Prefix for Cilksan-related commands for navigating between
+determinacy races.
+
+Each race is identified by a racing instruction I in the program,
+which is given an integer ID from 0 up to the number of instructions
+in the program involved in a determinacy race.
+
+Each race I has an associated list of racers, which are instructions
+that race with I.  Each instruction in the list of racers forms a
+racing pair with I.
+
+Each race also identifies the memory location that is raced on.
+
+For navigating between races, these commands maintain a current race
+target, which consists of:
+- the current race I,
+- the current racing pair (I, J) where J is among the racers of I, and
+- an endpoint in that pair.
+Navigation commands can operate relative to the current race target
+and update that target.  The command `cilksan race-info` prints
+information about the current race target."""
 
     def __init__(self):
-        super(LoadRacesCommand, self).__init__('load-races',
+        super(CilksanPrefixCommand, self).__init__('cilksan',
+                                                   gdb.COMMAND_RUNNING,
+                                                   gdb.COMPLETE_NONE, True)
+
+CilksanPrefixCommand()
+
+class LoadRacesCommand(gdb.Command):
+    """Load determinacy races from a file.
+
+Usage: cilksan load-races FILENAME
+
+Load determinacy races from FILENAME."""
+
+    def __init__(self):
+        super(LoadRacesCommand, self).__init__('cilksan load-races',
                                                gdb.COMMAND_SUPPORT,
                                                gdb.COMPLETE_FILENAME, False)
 
@@ -62,12 +98,12 @@ class LoadRacesCommand(gdb.Command):
 LoadRacesCommand()
 
 class PrintRacesCommand(gdb.Command):
-    """Print loaded Cilksan-detected determinacy races."""
+    """Print all loaded determinacy races."""
 
     def __init__(self):
-        super(PrintRacesCommand, self).__init__('print-races',
-                                               gdb.COMMAND_SUPPORT,
-                                               gdb.COMPLETE_NONE, False)
+        super(PrintRacesCommand, self).__init__('cilksan print-races',
+                                                gdb.COMMAND_SUPPORT,
+                                                gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         args = gdb.string_to_argv(arg)
@@ -83,16 +119,22 @@ class PrintRacesCommand(gdb.Command):
 PrintRacesCommand()
 
 class RaceInfoCommand(gdb.Command):
-    """Print loaded Cilksan-detected determinacy races."""
+    """Get information about a race.
+
+Usage: cilksan race-info [ID]
+
+Print information about determinacy race ID.
+
+If no ID is given, print information about the current race target."""
 
     def __init__(self):
-        super(RaceInfoCommand, self).__init__('race-info',
+        super(RaceInfoCommand, self).__init__('cilksan race-info',
                                               gdb.COMMAND_SUPPORT,
                                               gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         if current_race[0] == -1:
-            print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+            print(no_races_error_msg)
             return
         args = gdb.string_to_argv(arg)
         view_current_race = True
@@ -111,7 +153,7 @@ class RaceInfoCommand(gdb.Command):
         print("Race on address", hex(addr_for_race(race_to_examine)))
 
         if view_current_race:
-            print("seek-to-race targeting racing pair",
+            print("Current race target:\n  racing pair",
                   (race_to_examine, races[race_to_examine][current_race[1]]))
             if current_race[2] == 0:
                 print("  first endpoint")
@@ -121,10 +163,21 @@ class RaceInfoCommand(gdb.Command):
 RaceInfoCommand()
 
 class SeekToRaceCommand(gdb.Command):
-    """Seek to a specified Cilksan-detected determinacy race."""
+    """Seek program execution to a racing instruction.
+
+Usage: cilksan seek-to-race [ID [N]]
+
+Seek to determinacy race ID and instruction N in the list of racers,
+and update the current race and current target.  If N is 0, seek to
+the racing instruction identified by ID.  Otherwise, seek to the Nth
+instruction in the list of racers.
+
+If ID is given and N is not given, then N is assumed to be 0.
+
+If ID is not given, seeks to the current race target."""
 
     def __init__(self):
-        super(SeekToRaceCommand, self).__init__('seek-to-race',
+        super(SeekToRaceCommand, self).__init__('cilksan seek-to-race',
                                                 gdb.COMMAND_RUNNING,
                                                 gdb.COMPLETE_NONE, False)
 
@@ -133,7 +186,7 @@ class SeekToRaceCommand(gdb.Command):
         # If no arguments are given, seek to the current race.
         if len(args) < 1:
             if current_race[0] == -1:
-                print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+                print(no_races_error_msg)
                 return
             gdb.execute('seek-user-time ' + str(get_time_for_current_race()))
             return
@@ -162,16 +215,21 @@ class SeekToRaceCommand(gdb.Command):
 SeekToRaceCommand()
 
 class NextRaceCommand(gdb.Command):
-    """Seek to the next recorded determinacy race."""
+    """Seek program execution to the next race.
+
+Usage: cilksan next-race
+
+Seek to determinacy race ID+1, where ID identifies the current race.
+Update the current race target."""
 
     def __init__(self):
-        super(NextRaceCommand, self).__init__('next-race',
+        super(NextRaceCommand, self).__init__('cilksan next-race',
                                               gdb.COMMAND_RUNNING,
                                               gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         if len(races) == 0:
-            print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+            print(no_races_error_msg)
             return
         current_race[0] = current_race[0] + 1
         if current_race[0] == len(races):
@@ -183,16 +241,21 @@ class NextRaceCommand(gdb.Command):
 NextRaceCommand()
 
 class PrevRaceCommand(gdb.Command):
-    """Seek to the previous recorded determinacy race."""
+    """Seek program execution to the previous race.
+
+Usage: cilksan prev-race
+
+Seek to determinacy race ID-1, where ID identifies the current race.
+Update the current race target."""
 
     def __init__(self):
-        super(PrevRaceCommand, self).__init__('prev-race',
+        super(PrevRaceCommand, self).__init__('cilksan prev-race',
                                               gdb.COMMAND_RUNNING,
                                               gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         if len(races) == 0:
-            print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+            print(no_races_error_msg)
             return
         current_race[0] = current_race[0] - 1
         if current_race[0] < 0:
@@ -204,16 +267,21 @@ class PrevRaceCommand(gdb.Command):
 PrevRaceCommand()
 
 class ToggleRaceCommand(gdb.Command):
-    """Toogle the current race: seek to the opposite racing pair."""
+    """Seek program execution to the opposite racing instruction.
+
+Usage: cilksan toggle-race
+
+Toogle the current race target: target the opposite endpoint of the
+current racing pair, and seek to that instruction."""
 
     def __init__(self):
-        super(ToggleRaceCommand, self).__init__('toggle-race',
+        super(ToggleRaceCommand, self).__init__('cilksan toggle-race',
                                                 gdb.COMMAND_RUNNING,
                                                 gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         if len(races) == 0:
-            print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+            print(no_races_error_msg)
             return
         if current_race[2] == 0:
             current_race[2] = 1
@@ -224,16 +292,21 @@ class ToggleRaceCommand(gdb.Command):
 ToggleRaceCommand()
 
 class NextRacingPairCommand(gdb.Command):
-    """Seek to the next instruction that races with current racing instruction."""
+    """Update the targeted racing pair in the current race target.
+
+Usage: cilksan next-racing-pair
+
+Target the next racing pair associated with the current race.  Seek to
+that new target."""
 
     def __init__(self):
-        super(NextRacingPairCommand, self).__init__('next-racing-pair',
+        super(NextRacingPairCommand, self).__init__('cilksan next-racing-pair',
                                                     gdb.COMMAND_RUNNING,
                                                     gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
         if len(races) == 0:
-            print("No races recorded.  Use 'load-races <filename>' to load races from <filename>")
+            print(no_races_error_msg)
             return
         current_race[1] = current_race[1] + 1
         if current_race[1] >= len(races[current_race[0]]):
