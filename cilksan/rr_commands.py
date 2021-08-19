@@ -35,7 +35,7 @@ Each race also identifies the memory location that is raced on.
 For navigating between races, these commands maintain a current race
 target, which consists of:
 - the current race I,
-- the current racing pair (I, J) where J is among the racers of I, and
+- the current racing pair (I, J), where J is among the racers of I, and
 - an endpoint in that pair.
 Navigation commands can operate relative to the current race target
 and update that target.  The command `cilksan race-info` prints
@@ -265,6 +265,100 @@ Update the current race target."""
         gdb.execute('seek-user-time ' + str(get_time_for_current_race()))
 
 PrevRaceCommand()
+
+class FFToRaceCommand(gdb.Command):
+    """Fast-forward program execution to the next race after this time.
+
+Usage: cilksan ff-to-race
+
+Seek to the next determinacy race after the current point in the replay.
+Update the current race target."""
+
+    def __init__(self):
+        super(FFToRaceCommand, self).__init__('cilksan ff-to-race',
+                                              gdb.COMMAND_RUNNING,
+                                              gdb.COMPLETE_NONE, False)
+
+    def invoke(self, arg, from_tty):
+        if len(races) == 0:
+            print(no_races_error_msg)
+            return
+        # Get the current user time
+        when_user_time = gdb.execute('when-user-time', False, True)
+        parse = re.search("Current\s+user\s+time:\s+(-?\d+)", when_user_time)
+        current_user_time = int(parse.group(1))
+
+        # Binary search for the next race after the current user time
+        start = 0
+        end = len(races)
+        while end - start > 1:
+            mid = start + ((end - start) // 2)
+            next_race_time = time_for_race(mid)
+            if next_race_time <= current_user_time:
+                start = mid
+            else:
+                end = mid
+        if time_for_race(start) <= current_user_time:
+            start = start + 1
+        if start >= len(races):
+            print("No races after this point in the replay.")
+            return
+
+        # Seek to the race
+        next_race_time = time_for_race(start)
+        current_race[0] = start
+        current_race[1] = 0
+        current_race[2] = 0
+        gdb.execute('seek-user-time ' + str(next_race_time))
+
+FFToRaceCommand()
+
+class RWToRaceCommand(gdb.Command):
+    """Rewind program execution to the previous race before this time.
+
+Usage: cilksan rw-to-race
+
+Seek to the previous determinacy race before the current point in the replay.
+Update the current race target."""
+
+    def __init__(self):
+        super(RWToRaceCommand, self).__init__('cilksan rw-to-race',
+                                              gdb.COMMAND_RUNNING,
+                                              gdb.COMPLETE_NONE, False)
+
+    def invoke(self, arg, from_tty):
+        if len(races) == 0:
+            print(no_races_error_msg)
+            return
+        # Get the current user time
+        when_user_time = gdb.execute('when-user-time', False, True)
+        parse = re.search("Current\s+user\s+time:\s+(-?\d+)", when_user_time)
+        current_user_time = int(parse.group(1))
+
+        # Binary search for the next race after the current user time
+        start = 0
+        end = len(races)
+        while end - start > 1:
+            mid = start + ((end - start) // 2)
+            prev_race_time = time_for_race(mid)
+            if prev_race_time < current_user_time:
+                start = mid
+            else:
+                end = mid
+        if time_for_race(start) >= current_user_time:
+            if start == 0:
+                print("No races before this point in the replay.")
+                return
+            start = start - 1
+
+        # Seek to the race
+        next_race_time = time_for_race(start)
+        current_race[0] = start
+        current_race[1] = 0
+        current_race[2] = 0
+        gdb.execute('seek-user-time ' + str(next_race_time))
+
+RWToRaceCommand()
 
 class ToggleRaceCommand(gdb.Command):
     """Seek program execution to the opposite racing instruction.
