@@ -5,7 +5,9 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
-
+#include <map>
+#include <mutex>
+#include <cilk/cilk_api.h>
 // Ensure that __cilkscale__ is defined, so we can provide a nontrivial
 // definition of getworkspan().
 #ifndef __cilkscale__
@@ -18,7 +20,8 @@
 #include <fstream>
 
 #define CILKTOOL_API extern "C" __attribute__((visibility("default")))
-
+#define SERIAL_TOOL 0
+static void print_analysis(void);
 #ifndef SERIAL_TOOL
 #define SERIAL_TOOL 1
 #endif
@@ -37,6 +40,8 @@
 // defined in libopencilk
 extern "C" int __cilkrts_is_initialized(void);
 extern "C" void __cilkrts_internal_set_nworkers(unsigned int nworkers);
+
+pthread_t TOOL_MAIN_THREAD = 0;
 
 ///////////////////////////////////////////////////////////////////////////
 // Data structures for tracking work and span.
@@ -66,6 +71,57 @@ public:
   ~CilkscaleImpl_t();
 };
 
+class CilkLocal_tool {
+public:
+  static std::map<pthread_t, CilkscaleImpl_t*> cilk_to_tool;
+  static std::map<pthread_t, int> cilk_to_id;
+  static int CILK_INDEX;
+  static std::mutex cilk_to_tool_lock;
+
+  CilkscaleImpl_t* ptr;
+  CilkLocal_tool() {
+    cilk_to_tool_lock.lock();
+    if (cilk_to_tool.find(cilk_thrd_current()) != cilk_to_tool.end()) {
+      ptr = cilk_to_tool[cilk_thrd_current()];
+    } else {
+      //printf("creating new cilkscale impl t\n");
+      ptr = new CilkscaleImpl_t();
+      cilk_to_id[cilk_thrd_current()] = CILK_INDEX++;
+      cilk_to_tool[cilk_thrd_current()] = ptr;
+    }
+    //print_analysis();
+    cilk_to_tool_lock.unlock();
+  }
+  CilkscaleImpl_t* get_tool() {
+    return ptr; 
+  }
+
+  int get_cilk_id() {
+    return cilk_to_id[cilk_thrd_current()];
+  }
+
+  void destroy() {
+    if (pthread_self() == TOOL_MAIN_THREAD) {
+      delete get_tool();
+      return;
+    }
+    cilk_to_tool_lock.lock();
+    if (cilk_to_tool.find(cilk_thrd_current()) != cilk_to_tool.end()) {
+      delete get_tool();
+      cilk_to_tool.erase(cilk_thrd_current());
+      cilk_to_id.erase(cilk_thrd_current());
+    }
+    cilk_to_tool_lock.unlock();
+  }
+  ~CilkLocal_tool() {}
+};
+std::map<pthread_t, CilkscaleImpl_t*> CilkLocal_tool::cilk_to_tool;
+std::map<pthread_t, int> CilkLocal_tool::cilk_to_id;
+std::mutex CilkLocal_tool::cilk_to_tool_lock;
+int CilkLocal_tool::CILK_INDEX = 0;
+
+thread_local CilkLocal_tool local_tool;
+static bool TOOL_INITIALIZED = false;
 // Top-level Cilkscale tool.
 static CilkscaleImpl_t *create_tool(void) {
   if (!__cilkrts_is_initialized())
@@ -74,58 +130,64 @@ static CilkscaleImpl_t *create_tool(void) {
     // initialized.
     return nullptr;
 
+
+  TOOL_INITIALIZED = true;
   // Otherwise, ordered dynamic initalization should ensure that it's safe to
   // create the tool.
-  return new CilkscaleImpl_t();
+  return local_tool.get_tool();
+  //return new CilkscaleImpl_t();
 }
-static CilkscaleImpl_t *tool = create_tool();
+static CilkscaleImpl_t *main_tool = create_tool();
+
 
 // Macro to access the correct shadow-stack data structure, based on the
 // initialized state of the tool.
 #if SERIAL_TOOL
-#define STACK (*tool->shadow_stack)
+#define STACK (*local_tool.get_tool()->shadow_stack)
 #else
-#define STACK (tool->shadow_stack->get_view())
+#define STACK (local_tool.get_tool()->shadow_stack->get_view())
 #endif
 
 // Macro to use the correct output stream, based on the initialized state of the
 // tool.
 #if SERIAL_TOOL
-#define OUTPUT ((tool->outf.is_open()) ? (tool->outf) : (tool->outs))
+#define OUTPUT ((local_tool.get_tool()->outf.is_open()) ? (local_tool.get_tool()->outf) : (local_tool.get_tool()->outs))
 #else
 #define OUTPUT                                                                 \
-  ((tool->outf_red) ? (**(tool->outf_red))                                     \
-                    : ((tool->outf.is_open()) ? (tool->outf) : (tool->outs)))
+  ((local_tool.get_tool()->outf_red) ? (**(local_tool.get_tool()->outf_red))                                     \
+                    : ((local_tool.get_tool()->outf.is_open()) ? (local_tool.get_tool()->outf) : (local_tool.get_tool()->outs)))
 #endif
 
-static bool TOOL_INITIALIZED = false;
 
 ///////////////////////////////////////////////////////////////////////////
 // Utilities for printing analysis results
 
 // Ensure that a proper header has been emitted to OS.
 template<class Out>
-static void ensure_header(Out &OS) {
+static void ensure_header(Out &OS, const char* cilk_str) {
   static bool PRINT_STARTED = false;
   if (PRINT_STARTED)
     return;
 
-  OS << "tag,work (" << cilk_time_t::units << ")"
+  OS << cilk_str << "tag,work (" << cilk_time_t::units << ")"
      << ",span (" << cilk_time_t::units << ")"
      << ",parallelism"
      << ",burdened_span (" << cilk_time_t::units << ")"
      << ",burdened_parallelism\n";
 
-  PRINT_STARTED = true;
+  //PRINT_STARTED = true;
 }
 
 // Emit the given results to OS.
 template<class Out>
-static void print_results(Out &OS, const char *tag, cilk_time_t work,
+static void print_results(Out &OS, const char* cilk_str, const char *tag, cilk_time_t work,
                           cilk_time_t span, cilk_time_t bspan) {
-  OS << tag
+  OS << cilk_str << tag
      << "," << work << "," << span << "," << work.get_val_d() / span.get_val_d()
      << "," << bspan << "," << work.get_val_d() / bspan.get_val_d() << "\n";
+  //std::cout << tag
+  //   << "," << work << "," << span << "," << work.get_val_d() / span.get_val_d()
+  //   << "," << bspan << "," << work.get_val_d() / bspan.get_val_d() << "\n";
 }
 
 // Emit the results from the overall program execution to the proper output
@@ -140,8 +202,12 @@ static void print_analysis(void) {
   cilk_time_t span = bottom.contin_span;
   cilk_time_t bspan = bottom.contin_bspan;
 
-  ensure_header(OUTPUT);
-  print_results(OUTPUT, "", work, span, bspan);
+  //printf("inside print analysis\n");
+  //ensure_header(OUTPUT);
+  //print_results(OUTPUT, "", work, span, bspan);
+  std::string cilk_str = "[CILK " + std::to_string(local_tool.get_cilk_id()) + "]:\t";
+  ensure_header(std::cout, cilk_str.c_str());
+  print_results(std::cout, cilk_str.c_str(), "", work, span, bspan);
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -192,15 +258,16 @@ CilkscaleImpl_t::CilkscaleImpl_t() {
 }
 
 CilkscaleImpl_t::~CilkscaleImpl_t() {
+  //printf("inside the cilkscale destructor.\n");
   STACK.stop.gettime();
   shadow_stack_frame_t &bottom = STACK.peek_bot();
 
   duration_t strand_time = elapsed_time(&(STACK.stop), &(STACK.start));
-  bottom.contin_work += strand_time;
-  bottom.contin_span += strand_time;
-  bottom.contin_bspan += strand_time;
+  //bottom.contin_work += strand_time;
+  //bottom.contin_span += strand_time;
+  //bottom.contin_bspan += strand_time;
 
-  print_analysis();
+  //print_analysis();
 
   if (outf.is_open())
     outf.close();
@@ -217,17 +284,37 @@ CilkscaleImpl_t::~CilkscaleImpl_t() {
 
 // Custom function to intialize tool after the OpenCilk runtime is initialized.
 static void init_tool(void) {
-  assert(nullptr == tool && "Tool already initialized");
-  tool = new CilkscaleImpl_t();
+  // NOTE(TFK): Commented out
+  //assert(nullptr == tool && "Tool already initialized");
+  //tool = new CilkscaleImpl_t();
+  //printf("calling init tool\n");
+
+  local_tool.get_tool();
+
+  TOOL_INITIALIZED = true;
+  //printf("after calling init tool\n");
 }
 
 static void destroy_tool(void) {
-  if (tool) {
-    delete tool;
-    tool = nullptr;
-  }
+  //printf("calling destroy tool\n");
+  // NOTE(TFK): Commented out
+  //local_tool.get_tool();
+  STACK.stop.gettime();
+  shadow_stack_frame_t &bottom = STACK.peek_bot();
 
-  TOOL_INITIALIZED = false;
+  duration_t strand_time = elapsed_time(&(STACK.stop), &(STACK.start));
+  bottom.contin_work += strand_time;
+  bottom.contin_span += strand_time;
+  bottom.contin_bspan += strand_time;
+
+  print_analysis();
+  local_tool.destroy();
+  //if (tool) {
+  //  delete tool;
+  //  tool = nullptr;
+  //}
+
+  //TOOL_INITIALIZED = false;
 }
 
 CILKTOOL_API void __csi_init() {
@@ -235,8 +322,10 @@ CILKTOOL_API void __csi_init() {
   fprintf(stderr, "__csi_init()\n");
 #endif
 
-  if (!__cilkrts_is_initialized())
-    __cilkrts_atinit(init_tool);
+  TOOL_MAIN_THREAD = pthread_self();
+  //if (!__cilkrts_is_initialized())
+  __cilkrts_atinit(init_tool);
+
 
   __cilkrts_atexit(destroy_tool);
 
@@ -244,7 +333,11 @@ CILKTOOL_API void __csi_init() {
   ensure_serial_tool();
 #endif
 
-  TOOL_INITIALIZED = true;
+  //if (__cilkrts_is_initialized()) {
+  //  init_tool();
+  //}
+
+  //TOOL_INITIALIZED = true;
 }
 
 CILKTOOL_API void __csi_unit_init(const char *const file_name,
@@ -629,8 +722,9 @@ CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
 
-  ensure_header(OUTPUT);
-  print_results(OUTPUT, tag, cilk_time_t(wsp.work), cilk_time_t(wsp.span),
+  std::string cilk_str = "[CILK " + std::to_string(local_tool.get_cilk_id()) + "]:\t";
+  ensure_header(OUTPUT, cilk_str.c_str());
+  print_results(OUTPUT, cilk_str.c_str(), tag, cilk_time_t(wsp.work), cilk_time_t(wsp.span),
                 cilk_time_t(wsp.bspan));
 
   stack.start.gettime();
