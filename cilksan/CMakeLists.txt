@@ -9,6 +9,9 @@ set(CILKSAN_SOURCES
   locking.cpp
   print_addr.cpp)
 
+set(CILKSAN_RR_FILES
+  rr_commands.py)
+
 include_directories(${CILKTOOLS_SOURCE_DIR}/include)
 
 set(CILKSAN_CFLAGS ${SANITIZER_COMMON_CFLAGS})
@@ -122,4 +125,17 @@ endif()
 
 if (CILKTOOLS_INCLUDE_TESTS)
   # TODO: add tests
+endif()
+
+foreach (file ${CILKSAN_RR_FILES})
+  install(PROGRAMS ${file}
+    DESTINATION share/cilksan
+    COMPONENT cilksan-rr)
+endforeach (file)
+
+add_custom_target(cilksan-rr DEPENDS ${CILKSAN_RR_FILES})
+if(NOT LLVM_ENABLE_IDE)
+  add_llvm_install_targets("install-cilksan-rr"
+                           DEPENDS cilksan-rr
+                           COMPONENT cilksan-rr)
 endif()
