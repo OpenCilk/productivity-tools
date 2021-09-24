@@ -67,16 +67,16 @@ def get_cpu_ordering():
       continue
     items = l.strip().split(',')
     cpu_id = int(items[0])
-    node_id = int(items[1])
+    core_id = int(items[1])
     socket_id = int(items[2])
-    avail_cpus.append((socket_id, node_id, cpu_id))
+    avail_cpus.append((socket_id, core_id, cpu_id))
 
   avail_cpus = sorted(avail_cpus)
   ret = []
-  added_nodes = dict()
+  added_cores = dict()
   for x in avail_cpus:
-    if x[1] not in added_nodes:
-      added_nodes[x[1]] = True
+    if x[1] not in added_cores:
+      added_cores[x[1]] = True
     else:
       continue
     ret.append((x[2], x[0]))
