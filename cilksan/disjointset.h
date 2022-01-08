@@ -268,6 +268,11 @@ public:
     // Mask to get the system page of a memory address.
     static constexpr uintptr_t SYS_PAGE_MASK = ~SYS_PAGE_DATA_MASK;
 
+    static size_t PAGE_ALIGNED(size_t size) {
+      return (size & SYS_PAGE_MASK) +
+             ((size & SYS_PAGE_DATA_MASK) == 0 ? 0 : SYS_PAGE_SIZE);
+    }
+
     DJSlab_t *Next = nullptr;
     DJSlab_t *Prev = nullptr;
 
@@ -343,9 +348,9 @@ public:
 
   public:
     DJSAllocator() {
-      FreeSlabs =
-          new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE, sizeof(DJSlab_t)))
-              DJSlab_t;
+      FreeSlabs = new (my_aligned_alloc(
+          DJSlab_t::SYS_PAGE_SIZE, DJSlab_t::PAGE_ALIGNED(sizeof(DJSlab_t))))
+          DJSlab_t;
     }
 
     ~DJSAllocator() {
@@ -371,7 +376,8 @@ public:
         if (!Slab->Next)
           // Allocate a new slab if necessary.
           FreeSlabs =
-              new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE, sizeof(DJSlab_t)))
+              new (my_aligned_alloc(DJSlab_t::SYS_PAGE_SIZE,
+                                    DJSlab_t::PAGE_ALIGNED(sizeof(DJSlab_t))))
                   DJSlab_t;
         else {
           Slab->Next->Prev = nullptr;
