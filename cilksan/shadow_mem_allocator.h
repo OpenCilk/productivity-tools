@@ -38,6 +38,11 @@ static constexpr uintptr_t SYS_PAGE_DATA_MASK = SYS_PAGE_SIZE - 1;
 // Mask to get the system page of a memory address.
 static constexpr uintptr_t SYS_PAGE_MASK = ~SYS_PAGE_DATA_MASK;
 
+static size_t PAGE_ALIGNED(size_t size) {
+  return (size & SYS_PAGE_MASK) +
+         ((size & SYS_PAGE_DATA_MASK) == 0 ? 0 : SYS_PAGE_SIZE);
+}
+
 // Helper macro to get the size of a struct field.
 #define member_size(type, member) sizeof(((type *)0)->member)
 
@@ -294,12 +299,12 @@ class MALineAllocator {
 public:
   MALineAllocator() {
     // Initialize the allocator with 1 page of each type of line.
-    MA1Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab1_t))) Slab1_t;
-    MA2Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab2_t))) Slab2_t;
-    MA4Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab4_t))) Slab4_t;
-    MA8Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab8_t))) Slab8_t;
-    MA16Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab16_t))) Slab16_t;
-    MA32Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab32_t))) Slab32_t;
+    MA1Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab1_t)))) Slab1_t;
+    MA2Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab2_t)))) Slab2_t;
+    MA4Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab4_t)))) Slab4_t;
+    MA8Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab8_t)))) Slab8_t;
+    MA16Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab16_t)))) Slab16_t;
+    MA32Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(Slab32_t)))) Slab32_t;
     // MA64Lines = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(Slab64_t))) Slab64_t;
   }
 
@@ -438,7 +443,7 @@ public:
     // If Slab is now full, move it to the Full list.
     if (Slab->isFull()) {
       if (!Slab->Head.getNext())
-        List = new (my_aligned_alloc(SYS_PAGE_SIZE, sizeof(ST))) ST;
+        List = new (my_aligned_alloc(SYS_PAGE_SIZE, PAGE_ALIGNED(sizeof(ST)))) ST;
       else {
         Slab->Head.getNext()->Back = nullptr;
         List = Slab->Head.getNext();
