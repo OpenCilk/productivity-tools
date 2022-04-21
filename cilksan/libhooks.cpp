@@ -4371,3 +4371,60 @@ CILKSAN_API void __csan_write(const csi_id_t call_id, const csi_id_t func_id,
 
   check_read_bytes(call_id, buf_MAAPVal, buf, result);
 }
+
+// Hyperobjects
+CILKSAN_API void __csan_llvm_reducer_register_i32(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *handle) {
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+
+  // For race purposes treat this as a read of the leftmost view.
+  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
+}
+
+CILKSAN_API void __csan_llvm_reducer_register_i64(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *handle) {
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+
+  // For race purposes treat this as a read of the leftmost view.
+  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
+}
+
+CILKSAN_API void __csan_llvm_reducer_unregister(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *handle) {
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+
+  // For race purposes treat this as a read of the leftmost view.
+  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
+}
+
+CILKSAN_API void __csan_llvm_hyper_lookup(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *handle) {
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  // Nothing to do here.  The value in the leftmost view is not used.
+}
