@@ -27,12 +27,14 @@
 #define TRACE_CALLS 0
 #endif
 
-#if !SERIAL_TOOL
-#include "shadow_stack_reducer.h"
-#include <cilk/cilk_api.h>
+#if SERIAL_TOOL
+FILE *err_io = stderr;
+#else
 #include <cilk/reducer.h>
 #include <cilk/reducer_ostream.h>
+#include "shadow_stack_reducer.h"
 #endif
+#include <cilk/cilk_api.h>
 
 // defined in libopencilk
 extern "C" int __cilkrts_is_initialized(void);

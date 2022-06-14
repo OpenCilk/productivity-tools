@@ -25,8 +25,8 @@
 #define TRACE_CALLS 0
 #endif
 
-#if !SERIAL_TOOL
 #include <cilk/cilk_api.h>
+#if !SERIAL_TOOL
 #include <cilk/reducer.h>
 #include <cilk/reducer_ostream.h>
 #endif
