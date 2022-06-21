@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <cilk/cilk.h>
 
+__attribute__((noinline))
 void inc(int *x) {
   cilk_spawn x[0]++;
   x[1]++;
 }
 
+__attribute__((noinline))
 void inc_loop(int *x, int *y) {
   #pragma cilk grainsize 1
   cilk_for (int i = 0; i < 2; ++i) {
