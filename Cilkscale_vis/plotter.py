@@ -140,7 +140,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     axs[r,0].plot(data["num_workers"], data["obs_runtime"], "mo", label="Observed", linestyle='None', markersize = 5)
     axs[r,0].plot(data["num_workers"], data["perf_lin_runtime"], "g", label="Perfect linear speedup")
     axs[r,0].plot(data["num_workers"], data["greedy_runtime"], "c", label="Burdened-dag bound")
-    axs[r,0].plot(data["num_workers"], data["span_runtime"], "y", label="Span bound")
+    axs[r,0].plot(data["num_workers"], data["span_runtime"], "y", label="Span bound = " + "{:.5f}s".format(data["span_runtime"][0]))
 
     if cpus:
       num_workers = len(cpus)
@@ -150,16 +150,19 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
       continue
 
     axs[r,0].set_xlabel("Number of workers")
-    axs[r,0].set_ylabel("Runtime")
+    axs[r,0].set_ylabel("Runtime (s)")
     axs[r,0].set_title(tag + " execution time")
     axs[r,0].set(xlim=[0,num_workers])
     axs[r,0].set_aspect(1.0/axs[r,0].get_data_ratio())
+
+    axs[r,0].legend(loc="upper right")
 
 
     axs[r,1].plot(data["num_workers"], data["obs_speedup"], "mo", label="Observed", linestyle='None', markersize = 5)
     axs[r,1].plot(data["num_workers"], data["perf_lin_speedup"], "g", label="Perfect linear speedup")
     axs[r,1].plot(data["num_workers"], data["greedy_speedup"], "c", label="Burdened-dag bound")
-    axs[r,1].plot(data["num_workers"], data["span_speedup"], "y", label="Span bound")
+    axs[r,1].plot(data["num_workers"], data["span_speedup"], "y", label="Parallelism = " +
+                  "{:.3f}".format(data["span_speedup"][0]))
 
     axs[r,1].set_xlabel("Number of workers")
     axs[r,1].set_ylabel("Speedup")
