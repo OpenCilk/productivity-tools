@@ -108,6 +108,7 @@ using v4ptrs = vec_t<uintptr_t, 4>;
 using v8i32 = vec_t<int32_t, 8>;
 using v8ptrs = vec_t<uintptr_t, 8>;
 
+using v16i8 = vec_t<int8_t, 16>;
 using v32i8 = vec_t<int8_t, 32>;
 
 template <typename VEC_T, unsigned NUM_ELS, typename MASK_T, MASK_T full_mask,
@@ -166,6 +167,14 @@ CILKSAN_API void __csan_llvm_masked_store_v4i64_p0v4i64(
     uint8_t *mask) {
   generic_masked_load_store<v4i64, 4, uint8_t, 0x0f, false>(
       call_id, MAAP_count, prop, val, ptr, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_load_v16i8_p0v16i8(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v16i8 *result, v16i8 *ptr, int32_t alignment,
+    uint16_t *mask) {
+  generic_masked_load_store<v16i8, 16, uint16_t, (uint16_t)(-1), true>(
+      call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
 CILKSAN_API void __csan_llvm_masked_load_v32i8_p0v32i8(
