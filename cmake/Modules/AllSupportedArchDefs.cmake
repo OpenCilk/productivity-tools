@@ -1,0 +1,30 @@
+set(ARM64 aarch64)
+set(ARM32 arm armhf)
+set(HEXAGON hexagon)
+set(X86 i386)
+set(X86_64 x86_64)
+set(MIPS32 mips mipsel)
+set(MIPS64 mips64 mips64el)
+set(PPC64 powerpc64 powerpc64le)
+set(RISCV32 riscv32)
+set(RISCV64 riscv64)
+set(S390X s390x)
+set(SPARC sparc)
+set(SPARCV9 sparcv9)
+set(WASM32 wasm32)
+set(WASM64 wasm64)
+
+if(APPLE)
+  set(ARM64 arm64)
+  set(ARM32 armv7 armv7s armv7k)
+  set(X86_64 x86_64 x86_64h)
+endif()
+
+set(ALL_CILKTOOLS_COMMON_SUPPORTED_ARCH ${X86} ${X86_64} ${PPC64} ${RISCV64}
+    ${ARM32} ${ARM64} ${MIPS32} ${MIPS64} ${S390X} ${SPARC} ${SPARCV9})
+
+set(OS_NAME "${CMAKE_SYSTEM_NAME}")
+
+set(ALL_CSI_SUPPORTED_ARCH ${X86_64} ${ARM64})
+set(ALL_CILKSAN_SUPPORTED_ARCH ${X86_64} ${ARM64})
+set(ALL_CILKSCALE_SUPPORTED_ARCH ${X86_64} ${ARM64})

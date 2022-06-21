@@ -69,7 +69,7 @@ set(exclude_from_check_all.g "")
 add_lit_testsuite(check-cilksan "Running the Cilksan tests"
   ${CILKSAN_TESTSUITES}
   ${exclude_from_check_all}
-  DEPENDS ${ASAN_TEST_DEPS})
+  DEPENDS ${CILKSAN_TEST_DEPS})
 set_target_properties(check-cilksan PROPERTIES FOLDER "Cilktools Misc")
 
 if(CILKTOOLS_CILKSAN_HAS_STATIC_RUNTIME)
@@ -77,7 +77,7 @@ if(CILKTOOLS_CILKSAN_HAS_STATIC_RUNTIME)
                     "Running the Cilksan tests with dynamic runtime"
                     ${CILKSAN_DYNAMIC_TESTSUITES}
                     ${exclude_from_check_all.g}
-                    DEPENDS ${ASAN_DYNAMIC_TEST_DEPS})
+                    DEPENDS ${CILKSAN_DYNAMIC_TEST_DEPS})
   set_target_properties(check-cilksan-dynamic
                         PROPERTIES FOLDER "Cilktools Misc")
 endif()
