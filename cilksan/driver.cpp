@@ -1004,6 +1004,30 @@ CILKSAN_API void __csan_alloc_posix_memalign(const csi_id_t allocfn_id,
   CilkSanImpl.clear_shadow_memory((size_t)(*ptr), size);
 }
 
+CILKSAN_API void __csan_alloc_memalign(const csi_id_t allocfn_id,
+                                       const csi_id_t func_id,
+                                       unsigned MAAP_count,
+                                       const allocfn_prop_t prop, char *result,
+                                       size_t alignment, size_t size) {
+  if (!TOOL_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+  if (__builtin_expect(!allocfn_pc[allocfn_id], false))
+    allocfn_pc[allocfn_id] = CALLERPC;
+  if (__builtin_expect(allocfn_prop[allocfn_id].allocfn_ty == uint8_t(-1),
+                       false))
+    allocfn_prop[allocfn_id] = prop;
+
+  if (0 == size)
+    return;
+
+  malloc_sizes.insert((uintptr_t)(*result), size);
+  CilkSanImpl.record_alloc((size_t)(*result), size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)(*result), size);
+}
+
 CILKSAN_API void __csan_alloc_strdup(const csi_id_t allocfn_id,
                                      const csi_id_t func_id,
                                      unsigned MAAP_count,
