@@ -37,9 +37,9 @@ private:
   // Constant parameters for the table structure.
   // log_2 of bytes per line.
   // static constexpr unsigned LG_LINE_SIZE = 3;
-  static constexpr unsigned LG_LINE_SIZE = 5;
+  static constexpr unsigned LG_LINE_SIZE = 9;
   // log_2 of lines per page.
-  static constexpr unsigned LG_PAGE_SIZE = 24 - LG_LINE_SIZE;
+  static constexpr unsigned LG_PAGE_SIZE = 30 - LG_LINE_SIZE;
   // log_2 of number of pages in the top-level table.
   static constexpr unsigned LG_TABLE_SIZE = 48 - LG_PAGE_SIZE - LG_LINE_SIZE;
 
@@ -210,8 +210,12 @@ private:
   protected:
     static const uintptr_t DataMask = (1UL << 48) - 1;
     static const uintptr_t NumNonNullElsRShift = 48;
-    static const uintptr_t LgGrainsizeRShift = 48 + 8;
-    static const uintptr_t MetadataFieldMask = (1UL << 8) - 1;
+    static constexpr uintptr_t LgNumNonNullEls = 12;
+    static_assert(LgNumNonNullEls > LG_LINE_SIZE,
+                  "LINE_SIZE exceeds max count of non-null elements.");
+    static const uintptr_t LgGrainsizeRShift = 48 + LgNumNonNullEls;
+    static const uintptr_t NumNonNullMask = (1UL << LgNumNonNullEls) - 1;
+    static const uintptr_t GrainsizeMask = (1UL << (16 - LgNumNonNullEls)) - 1;
     // The array of LineData_t objects in this line is allocated lazily.
     LineData_t *DataPtr = nullptr;
 
@@ -228,15 +232,15 @@ private:
     setLgGrainsize(unsigned newLgGrainsize) {
       DataPtr = reinterpret_cast<LineData_t *>(
           (reinterpret_cast<uintptr_t>(DataPtr) &
-           ~(MetadataFieldMask << LgGrainsizeRShift)) |
+           ~(GrainsizeMask << LgGrainsizeRShift)) |
           (static_cast<uintptr_t>(newLgGrainsize) << LgGrainsizeRShift));
     }
     __attribute__((always_inline)) void scaleNumNonNullEls(int replFactor) {
       DataPtr = reinterpret_cast<LineData_t *>(
           (reinterpret_cast<uintptr_t>(DataPtr) &
-           ~(MetadataFieldMask << NumNonNullElsRShift)) |
+           ~(NumNonNullMask << NumNonNullElsRShift)) |
           ((reinterpret_cast<uintptr_t>(DataPtr) &
-            (MetadataFieldMask << NumNonNullElsRShift)) *
+            (NumNonNullMask << NumNonNullElsRShift)) *
            replFactor));
     }
 
@@ -260,7 +264,7 @@ private:
     __attribute__((always_inline)) unsigned getLgGrainsize() const {
       return static_cast<unsigned>(
           (reinterpret_cast<uintptr_t>(DataPtr) >> LgGrainsizeRShift) &
-          MetadataFieldMask);
+          GrainsizeMask);
     }
 
     __attribute__((always_inline)) bool isEmpty() const {
@@ -270,16 +274,16 @@ private:
     __attribute__((always_inline)) int getNumNonNullEls() const {
       return static_cast<int>(
           (reinterpret_cast<uintptr_t>(DataPtr) >> NumNonNullElsRShift) &
-          MetadataFieldMask);
+          NumNonNullMask);
     }
     __attribute__((always_inline)) bool noNonNullEls() const {
       return (0 == (reinterpret_cast<uintptr_t>(DataPtr) &
-                    (MetadataFieldMask << NumNonNullElsRShift)));
+                    (NumNonNullMask << NumNonNullElsRShift)));
     }
     __attribute__((always_inline)) void zeroNumNonNullEls() {
       DataPtr = reinterpret_cast<LineData_t *>(
           reinterpret_cast<uintptr_t>(DataPtr) &
-          ~(MetadataFieldMask << NumNonNullElsRShift));
+          ~(NumNonNullMask << NumNonNullElsRShift));
     }
     __attribute__((always_inline)) void incNumNonNullEls() {
       DataPtr = reinterpret_cast<LineData_t *>(
