@@ -29,6 +29,7 @@ public:
   Foo() {}
   ~Foo() {}
   int &getVal() { return val; }
+  __attribute__((noinline))
   void incVal() { val++; }
 };
 
@@ -38,6 +39,7 @@ public:
   Bar() {}
   ~Bar() {}
   int &getVal(int i) { return val[i]; }
+  __attribute__((noinline))
   void incVal(int i) { val[i]++; }
 };
 
@@ -48,6 +50,7 @@ static void helper(int &x) {
   x++;
 }
 
+__attribute__((noinline))
 static void arr_helper(int *x, int n) {
   for (int i = 0; i < n; i++)
     x[i]++;
@@ -301,14 +304,14 @@ void new_test() {
 // CHECK-NEW: * Read {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object x
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[X]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object x
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: x->getVal()
 
@@ -319,7 +322,7 @@ void new_test() {
 // CHECK-NEW: Call {{[0-9a-f]+}} new_test
 // CHECK-NEW-NEXT: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object x
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[X]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} incVal
@@ -328,7 +331,7 @@ void new_test() {
 // CHECK-NEW: Call {{[0-9a-f]+}} new_test
 // CHECK-NEW-NEXT: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object x
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: x->getVal()
 
@@ -337,14 +340,14 @@ void new_test() {
 // CHECK-NEW: * Read {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object y
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[Y]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object y
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[Y]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} incVal
@@ -353,7 +356,7 @@ void new_test() {
 // CHECK-NEW: Call {{[0-9a-f]+}} new_test
 // CHECK-NEW-NEXT: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object y
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[Y]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} incVal
@@ -362,7 +365,7 @@ void new_test() {
 // CHECK-NEW: Call {{[0-9a-f]+}} new_test
 // CHECK-NEW-NEXT: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object y
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: y->getVal(0)
 
@@ -371,28 +374,28 @@ void new_test() {
 // CHECK-NEW: * Read {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object z
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[ZA]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object z
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[ZB:[0-9a-f]+]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: * Read {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object z
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: Race detected on location [[ZB]]
 // CHECK-NEW-NEXT: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: * Write {{[0-9a-f]+}} new_test
 // CHECK-NEW: Common calling context
 // CHECK-NEW-NEXT: Parfor
-// CHECK-NEW: Heap object z
+// CHECK-NEW: Heap object this
 
 // CHECK-NEW: z->b
 

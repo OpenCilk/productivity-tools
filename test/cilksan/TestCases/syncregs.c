@@ -1,7 +1,7 @@
 // RUN: %clang_cilksan -fopencilk -Og %s -o %t
-// RUN: %run %t 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-OG
+// RUN: %run %t 2>&1 | FileCheck %s
 // RUN: %clang_cilksan -fopencilk -O2 %s -o %t
-// RUN: %run %t 2>&1 | FileCheck %s --check-prefixes=CHECK,CHECK-O2
+// RUN: %run %t 2>&1 | FileCheck %s
 
 #include <cilk/cilk.h>
 #include <stdio.h>
@@ -76,15 +76,14 @@ int main(int argc, char *argv[]) {
 // CHECK: Common calling context
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 
-// CHECK-O2: Race detected on location [[GLOBAL]]
-// CHECK-O2-NEXT: * Read {{[0-9a-f]+}} bar
-// CHECK-O2-NEXT: to variable globl
-// CHECK-O2-NEXT: Spawn {{[0-9a-f]+}} foo
-// CHECK-O2-NEXT: * Write {{[0-9a-f]+}} bar
-// CHECK-O2-NEXT: to variable globl
-// CHECK-O2: Common calling context
-// CHECK-O2-NEXT: Call {{[0-9a-f]+}} main
+// CHECK: Race detected on location [[GLOBAL]]
+// CHECK-NEXT: * Read {{[0-9a-f]+}} bar
+// CHECK-NEXT: to variable globl
+// CHECK-NEXT: Spawn {{[0-9a-f]+}} foo
+// CHECK-NEXT: * Write {{[0-9a-f]+}} bar
+// CHECK-NEXT: to variable globl
+// CHECK: Common calling context
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
 
-// CHECK-OG: Cilksan detected 4 distinct races.
-// CHECK-O2: Cilksan detected 5 distinct races.
+// CHECK: Cilksan detected 5 distinct races.
 // CHECK-NEXT: Cilksan suppressed {{[0-9]+}} duplicate race reports.

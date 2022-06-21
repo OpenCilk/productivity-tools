@@ -6,6 +6,7 @@
 
 int global = 0;
 
+__attribute__((noinline))
 void increment(int *x, int n) {
   for (int i = 0; i < n; i++)
     x[i]++;

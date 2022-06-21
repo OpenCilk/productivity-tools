@@ -8,23 +8,27 @@
 
 double global = 0.0;
 
+__attribute__((noinline))
 void global_printf_test(int n) {
   // Write-read race
   cilk_spawn { global += n; }
   fprintf(stderr, "global = %f\n", global);
 }
 
+__attribute__((noinline))
 void global_cout_test(int n) {
   // Write-read race
   cilk_spawn { global *= n; }
   std::cout << "global = " << global << "\n";
 }
 
+__attribute__((noinline))
 static void arr_helper(int *x, int n) {
   for (int i = 0; i < n; i++)
     x[i]++;
 }
 
+__attribute__((noinline))
 void malloc_free_test(int size) {
   int *x = (int*)malloc(size * sizeof(int));
   // Write-free race
@@ -32,6 +36,7 @@ void malloc_free_test(int size) {
   free(x);
 }
 
+__attribute__((noinline))
 void malloc_printf_test(int size) {
   int *x = (int*)malloc(size * sizeof(int));
   // Write-read race
@@ -41,6 +46,7 @@ void malloc_printf_test(int size) {
   free(x);
 }
 
+__attribute__((noinline))
 void malloc_cout_test(int size) {
   int *x = (int*)malloc(size * sizeof(int));
   // Write-read race
@@ -50,6 +56,7 @@ void malloc_cout_test(int size) {
   free(x);
 }
 
+__attribute__((noinline))
 void str_printf_test() {
   const char *str = "Hello, world!";
   char *cpy = (char *)malloc(sizeof(*str));
