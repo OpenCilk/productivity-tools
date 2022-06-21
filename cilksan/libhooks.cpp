@@ -355,6 +355,8 @@ CILKSAN_API void __csan_llvm_va_copy(const csi_id_t call_id,
   }
 
   // TODO: Determine how to handle the implementation-dependent va_list type.
+  (void)dst_MAAPVal;
+  (void)src_MAAPVal;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -1186,6 +1188,7 @@ CILKSAN_API void __csan_fgetpos(const csi_id_t call_id, const csi_id_t func_id,
   if (result < 0)
     return;
 
+  (void)stream_MAAPVal;
   check_write_bytes(call_id, pos_MAAPVal, pos, sizeof(fpos_t));
 }
 
@@ -1205,6 +1208,7 @@ CILKSAN_API void __csan_fgets(const csi_id_t call_id, const csi_id_t func_id,
   if (!is_execution_parallel())
     return;
 
+  (void)stream_MAAPVal;
   size_t len = strlen(str);
   check_write_bytes(call_id, str_MAAPVal, str, len + 1);
 }
@@ -1410,6 +1414,7 @@ CILKSAN_API void __csan_fprintf(const csi_id_t call_id, const csi_id_t func_id,
     --MAAP_count;
   }
 
+  (void)stream_MAAPVal;
   va_list ap;
   va_start(ap, format);
   vprintf_common(call_id, MAAP_count, format, ap);
@@ -1541,6 +1546,7 @@ CILKSAN_API void __csan_freopen(const csi_id_t call_id, const csi_id_t func_id,
   if (!is_execution_parallel())
     return;
 
+  (void)stream_MAAPVal;
   check_read_bytes(call_id, filename_MAAPVal, filename, strlen(filename) + 1);
   check_read_bytes(call_id, mode_MAAPVal, mode, strlen(mode) + 1);
 }
@@ -1615,6 +1621,7 @@ CILKSAN_API void __csan_fscanf(const csi_id_t call_id, const csi_id_t func_id,
     --MAAP_count;
   }
 
+  (void)stream_MAAPVal;
   va_list ap;
   va_start(ap, format);
   vscanf_common(call_id, MAAP_count, result, format, ap);
@@ -1690,6 +1697,7 @@ CILKSAN_API void __csan_fsetpos(const csi_id_t call_id, const csi_id_t func_id,
   if (result < 0)
     return;
 
+  (void)stream_MAAPVal;
   check_read_bytes(call_id, pos_MAAPVal, pos, sizeof(fpos_t));
 }
 
@@ -1778,6 +1786,7 @@ CILKSAN_API void __csan_fwrite(const csi_id_t call_id, const csi_id_t func_id,
     // Nothing to do if size or result is 0
     return;
 
+  (void)stream_MAAPVal;
   check_read_bytes(call_id, buffer_MAAPVal, buffer, size * result);
 }
 
@@ -3878,6 +3887,7 @@ CILKSAN_API void __csan_strxfrm(const csi_id_t call_id, const csi_id_t func_id,
   if (!is_execution_parallel())
     return;
 
+  (void)str1_MAAPVal;
   check_read_bytes(call_id, str2_MAAPVal, str2, strlen(str2) + 1);
   size_t xfrm_len = 1 + strxfrm(nullptr, str2, 0);
   if (nullptr != str1)
@@ -4049,6 +4059,7 @@ CILKSAN_API void __csan_vfprintf(const csi_id_t call_id, const csi_id_t func_id,
     --MAAP_count;
   }
 
+  (void)stream_MAAPVal;
   vprintf_common(call_id, MAAP_count, format, ap);
 }
 
@@ -4071,6 +4082,7 @@ CILKSAN_API void __csan_vfscanf(const csi_id_t call_id, const csi_id_t func_id,
     --MAAP_count;
   }
 
+  (void)stream_MAAPVal;
   vscanf_common(call_id, MAAP_count, result, format, ap);
 }
 
