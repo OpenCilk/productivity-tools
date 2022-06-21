@@ -34,21 +34,25 @@ __cilksan_unregister_lock_explicit(const void *mutex) CILKSAN_NOTHROW;
 
 #else // #ifdef __cilksan__
 
-CILKSAN_EXTERN_C void __cilksan_enable_checking(void) CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C void __cilksan_disable_checking(void) CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C bool __cilksan_is_checking_enabled(void) { return false; }
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+static inline void __cilksan_enable_checking(void) CILKSAN_NOTHROW {}
+static inline void __cilksan_disable_checking(void) CILKSAN_NOTHROW {}
+static inline bool __cilksan_is_checking_enabled(void) { return false; }
 
-CILKSAN_EXTERN_C void
-__cilksan_acquire_lock(const void *mutex) CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C void
-__cilksan_release_lock(const void *mutex) CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C void __cilksan_begin_atomic() CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C void __cilksan_end_atomic() CILKSAN_NOTHROW {}
+static inline void __cilksan_acquire_lock(const void *mutex) CILKSAN_NOTHROW {}
+static inline void __cilksan_release_lock(const void *mutex) CILKSAN_NOTHROW {}
+static inline void __cilksan_begin_atomic() CILKSAN_NOTHROW {}
+static inline void __cilksan_end_atomic() CILKSAN_NOTHROW {}
 
-CILKSAN_EXTERN_C void
+static inline void
 __cilksan_register_lock_explicit(const void *mutex) CILKSAN_NOTHROW {}
-CILKSAN_EXTERN_C void
+static inline void
 __cilksan_unregister_lock_explicit(const void *mutex) CILKSAN_NOTHROW {}
+#ifdef __cplusplus
+} // extern "C"
+#endif // __cplusplus
 
 #endif // #ifdef __cilksan__
 
