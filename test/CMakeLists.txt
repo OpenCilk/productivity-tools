@@ -14,8 +14,11 @@ if(NOT ANDROID)
   if(NOT CILKTOOLS_STANDALONE_BUILD AND NOT RUNTIMES_BUILD)
     # Use LLVM utils and Clang from the same build tree.
     list(APPEND CILKTOOLS_COMMON_LIT_TEST_DEPS
-      clang clang-resource-headers FileCheck count not llvm-config llvm-nm llvm-objdump
+      clang FileCheck count not llvm-config llvm-nm llvm-objdump
       llvm-readobj llvm-symbolizer cilktools-headers sancov)
+    # list(APPEND CILKTOOLS_COMMON_LIT_TEST_DEPS
+    #   clang clang-resource-headers FileCheck count not llvm-config llvm-nm llvm-objdump
+    #   llvm-readobj llvm-symbolizer cilktools-headers sancov)
   endif()
 endif()
 

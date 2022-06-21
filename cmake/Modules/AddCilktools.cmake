@@ -123,6 +123,21 @@ macro(set_output_name output name arch)
   else()
     if(ANDROID AND ${arch} STREQUAL "i386")
       set(${output} "${name}-i686${CILKTOOLS_OS_SUFFIX}")
+    elseif("${arch}" MATCHES "^arm")
+      if(CILKTOOLS_DEFAULT_TARGET_ONLY)
+        set(triple "${CILKTOOLS_DEFAULT_TARGET_TRIPLE}")
+      else()
+        set(triple "${TARGET_TRIPLE}")
+      endif()
+      # When using arch-suffixed runtime library names, clang only looks for
+      # libraries named "arm" or "armhf", see getArchNameForCompilerRTLib in
+      # clang. Therefore, try to inspect both the arch name and the triple
+      # if it seems like we're building an armhf target.
+      if ("${arch}" MATCHES "hf$" OR "${triple}" MATCHES "hf$")
+        set(${output} "${name}-armhf${CILKTOOLS_OS_SUFFIX}")
+      else()
+        set(${output} "${name}-arm${CILKTOOLS_OS_SUFFIX}")
+      endif()
     else()
       set(${output} "${name}-${arch}${CILKTOOLS_OS_SUFFIX}")
     endif()
@@ -132,7 +147,7 @@ endmacro()
 # Adds static or shared runtime for a list of architectures and operating
 # systems and puts it in the proper directory in the build and install trees.
 # add_cilktools_runtime(<name>
-#                         {OBJECT|STATIC|SHARED}
+#                         {OBJECT|STATIC|SHARED|MODULE}
 #                         ARCHS <architectures>
 #                         OS <os list>
 #                         SOURCES <source files>
@@ -144,8 +159,9 @@ endmacro()
 #                         PARENT_TARGET <convenience parent target>
 #                         ADDITIONAL_HEADERS <header files>)
 function(add_cilktools_runtime name type)
-  if(NOT type MATCHES "^(OBJECT|STATIC|SHARED)$")
-    message(FATAL_ERROR "type argument must be OBJECT, STATIC or SHARED")
+  if(NOT type MATCHES "^(OBJECT|STATIC|SHARED|MODULE)$")
+    message(FATAL_ERROR
+            "type argument must be OBJECT, STATIC, SHARED or MODULE")
     return()
   endif()
   cmake_parse_arguments(LIB
@@ -545,7 +561,7 @@ macro(add_custom_libcxx name prefix)
   if(LIBCXX_USE_TOOLCHAIN)
     set(compiler_args -DCMAKE_C_COMPILER=${CILKTOOLS_TEST_COMPILER}
                       -DCMAKE_CXX_COMPILER=${CILKTOOLS_TEST_CXX_COMPILER})
-    if(NOT CILKTOOLS_STANDALONE_BUILD AND NOT RUNTIMES_BUILD)
+    if(NOT CILKTOOLS_STANDALONE_BUILD AND NOT LLVM_RUNTIMES_BUILD)
       set(toolchain_deps $<TARGET_FILE:clang>)
       set(force_deps DEPENDS $<TARGET_FILE:clang>)
     endif()
