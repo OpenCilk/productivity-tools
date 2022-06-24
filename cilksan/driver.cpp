@@ -1504,14 +1504,14 @@ cilkred_map *__wrap___cilkrts_internal_merge_two_rmaps(__cilkrts_worker *ws,
 }
 
 // Wrapped __cilkrts_hyper_alloc method for dynamic interpositioning.
-typedef void *(*hyper_alloc_t)(void *, size_t);
+typedef void *(*hyper_alloc_t)(size_t);
 static hyper_alloc_t dl___cilkrts_hyper_alloc = NULL;
 
 CILKSAN_API CILKSAN_WEAK void*
-__cilkrts_hyper_alloc(void *ignored, size_t bytes) {
+__cilkrts_hyper_alloc(size_t bytes) {
   START_DL_INTERPOSER(__cilkrts_hyper_alloc, hyper_alloc_t);
 
-  void *ptr = dl___cilkrts_hyper_alloc(ignored, bytes);
+  void *ptr = dl___cilkrts_hyper_alloc(bytes);
   malloc_sizes.insert((uintptr_t)ptr, bytes);
   CilkSanImpl.record_alloc((size_t)ptr, bytes, 0);
   CilkSanImpl.clear_shadow_memory((size_t)ptr, bytes);
@@ -1520,13 +1520,13 @@ __cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 
 /// Wrapped __cilkrts_hyper_alloc method for link-time interpositioning.
 CILKSAN_API void*
-__real___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
-  return __cilkrts_hyper_alloc(ignored, bytes);
+__real___cilkrts_hyper_alloc(size_t bytes) {
+  return __cilkrts_hyper_alloc(bytes);
 }
 
 CILKSAN_API
-void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
-  void *ptr = __real___cilkrts_hyper_alloc(ignored, bytes);
+void *__wrap___cilkrts_hyper_alloc(size_t bytes) {
+  void *ptr = __real___cilkrts_hyper_alloc(bytes);
   malloc_sizes.insert((uintptr_t)ptr, bytes);
   CilkSanImpl.record_alloc((size_t)ptr, bytes, 0);
   CilkSanImpl.clear_shadow_memory((size_t)ptr, bytes);
@@ -1534,35 +1534,33 @@ void *__wrap___cilkrts_hyper_alloc(void *ignored, size_t bytes) {
 }
 
 // Wrapped __cilkrts_hyper_dealloc method for dynamic interpositioning.
-typedef void (*hyper_dealloc_t)(void *, void *);
+typedef void (*hyper_dealloc_t)(void *, size_t);
 static hyper_dealloc_t dl___cilkrts_hyper_dealloc = NULL;
 
 CILKSAN_API CILKSAN_WEAK void
-__cilkrts_hyper_dealloc(void *ignored, void *view) {
+__cilkrts_hyper_dealloc(void *view, size_t size) {
   START_DL_INTERPOSER(__cilkrts_hyper_dealloc, hyper_dealloc_t);
 
-  const size_t *size = malloc_sizes.get((uintptr_t)view);
   if (malloc_sizes.contains((uintptr_t)view)) {
-    CilkSanImpl.clear_alloc((size_t)view, *size);
-    CilkSanImpl.clear_shadow_memory((size_t)view, *size);
+    CilkSanImpl.clear_alloc((size_t)view, size);
+    CilkSanImpl.clear_shadow_memory((size_t)view, size);
     malloc_sizes.remove((uintptr_t)view);
   }
-  dl___cilkrts_hyper_dealloc(ignored, view);
+  dl___cilkrts_hyper_dealloc(view, size);
 }
 
 /// Wrapped __cilkrts_hyper_alloc method for link-time interpositioning.
 CILKSAN_API void
-__real___cilkrts_hyper_dealloc(void *ignored, void *view) {
-  __cilkrts_hyper_dealloc(ignored, view);
+__real___cilkrts_hyper_dealloc(void *view, size_t size) {
+  __cilkrts_hyper_dealloc(view, size);
 }
 
 CILKSAN_API
-void __wrap___cilkrts_hyper_dealloc(void *ignored, void *view) {
-  const size_t *size = malloc_sizes.get((uintptr_t)view);
+void __wrap___cilkrts_hyper_dealloc(void *view, size_t size) {
   if (malloc_sizes.contains((uintptr_t)view)) {
-    CilkSanImpl.clear_alloc((size_t)view, *size);
-    CilkSanImpl.clear_shadow_memory((size_t)view, *size);
+    CilkSanImpl.clear_alloc((size_t)view, size);
+    CilkSanImpl.clear_shadow_memory((size_t)view, size);
     malloc_sizes.remove((uintptr_t)view);
   }
-  __real___cilkrts_hyper_dealloc(ignored, view);
+  __real___cilkrts_hyper_dealloc(view, size);
 }
