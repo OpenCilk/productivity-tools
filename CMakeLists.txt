@@ -14,7 +14,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR CILKTOOLS_STANDALONE_B
   set(PACKAGE_NAME Cilktools)
   set(PACKAGE_VERSION 14.0.5)
   set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
-  set(PACKAGE_BUGREPORT "bugs@opencilk.org")
+  set(PACKAGE_BUGREPORT "https://github.com/OpenCilk/productivity-tools/issues/")
 endif()
 
 # Add path for custom compiler-rt modules.
