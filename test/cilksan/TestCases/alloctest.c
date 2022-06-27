@@ -37,10 +37,8 @@ int main(int argc, char *argv[]) {
 
 // CHECK-N1: Race detected on location {{[0-9a-f]+}}
 // CHECK-N1: * Write
-// CHECK-N1: Parfor
 // CHECK-N1: Spawn
 // CHECK-N1: * Write
-// CHECK-N1: Parfor
 
 // CHECK-N1: sin(0) = 1
 
