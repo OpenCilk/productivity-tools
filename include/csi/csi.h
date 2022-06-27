@@ -132,10 +132,12 @@ typedef struct {
   unsigned may_be_captured : 1;
   // The load operation is atomic.
   unsigned is_atomic : 1;
+  // The load is from a thread-local variable.
+  unsigned is_thread_local : 1;
   // The loaded address is read before it is written in the same basic block.
   unsigned is_read_before_write_in_bb : 1;
   // Pad struct to 64 total bits.
-  uint64_t _padding : 50;
+  uint64_t _padding : 49;
 } load_prop_t;
 
 typedef struct {
@@ -151,8 +153,10 @@ typedef struct {
   unsigned may_be_captured : 1;
   // The store operation is atomic.
   unsigned is_atomic : 1;
+  // The store is to a thread-local variable.
+  unsigned is_thread_local : 1;
   // Pad struct to 64 total bits.
-  uint64_t _padding : 51;
+  uint64_t _padding : 50;
 } store_prop_t;
 
 typedef struct {
