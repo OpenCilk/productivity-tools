@@ -72,8 +72,8 @@ const char *allocfn_str[] =
   {
    "void *malloc(size_t size)",
    "void *valloc(size_t size)",
-   "void *aligned_alloc(align_val_t, size)",
    "void *calloc(size_t count, size_t size)",
+   "void *aligned_alloc(align_val_t, size)",
    "void *realloc(void *ptr, size_t size)",
    "void *reallocf(void *ptr, size_t size)",
    "void *operator new(unsigned int)",
@@ -92,6 +92,14 @@ const char *allocfn_str[] =
    "void *operator new[](unsigned int, nothrow)",
    "void *operator new[](unsigned long long)",
    "void *operator new[](unsigned long long, nothrow)",
+   "void *new(unsigned int, align_val_t)",
+   "void *new(unsigned long, align_val_t)",
+   "void *new[](unsigned int, align_val_t)",
+   "void *new[](unsigned long, align_val_t)",
+   "void *new(unsigned int, align_val_t, nothrow)",
+   "void *new(unsigned long, align_val_t, nothrow)",
+   "void *new[](unsigned int, align_val_t, nothrow)",
+   "void *new[](unsigned long, align_val_t, nothrow)",
    "int posix_memalign(void **memptr, size_t alignment, size_t size)",
    "char *strdup(const char *str)",
    "char *strndup(const char *str, size_t size)"
@@ -119,7 +127,11 @@ const char *free_str[] =
    "void operator delete[](void*, unsigned int)",
    "void operator delete[](void*)",
    "void operator delete[](void*, nothrow)",
-   "void operator delete[](void*, unsigned long long)"
+   "void operator delete[](void*, unsigned long long)",
+   "void operator delete(void*, align_val_t)",
+   "void operator delete(void*, align_val_t, nothrow)",
+   "void operator delete[](void*, align_val_t)",
+   "void operator delete[](void*, align_val_t, nothrow)"
   };
 // ------------------------------------------------------------------------
 // Constants
