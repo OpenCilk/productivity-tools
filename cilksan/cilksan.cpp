@@ -6,23 +6,75 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "disjointset.h"
+#include "driver.h"
 #include "frame_data.h"
 #include "race_detect_update.h"
 #include "simple_shadow_mem.h"
 #include "spbag.h"
 #include "stack.h"
 
+// FILE io used to print error messages
+FILE *err_io = stderr;
+
 #if CILKSAN_DEBUG
 enum EventType_t last_event = NONE;
-static bool CILKSAN_INITIALIZED = false;
 #endif
 
-// declared in drivercsan.cpp
-extern FILE *err_io;
+// Flag to track whether Cilksan is initialized.
+bool CILKSAN_INITIALIZED = false;
+
+csi_id_t total_call = 0;
+csi_id_t total_spawn = 0;
+csi_id_t total_loop = 0;
+csi_id_t total_load = 0;
+csi_id_t total_store = 0;
+csi_id_t total_alloca = 0;
+csi_id_t total_allocfn = 0;
+csi_id_t total_free = 0;
+
 // declared in print_addr.cpp
 extern uintptr_t *call_pc;
 extern uintptr_t *load_pc;
 extern uintptr_t *store_pc;
+
+// Flag to globally enable/disable instrumentation.
+bool instrumentation = false;
+
+// Flag to check if Cilksan is running under RR.
+bool is_running_under_rr = false;
+
+// Reentrant flag for enabling/disabling instrumentation; 0 enables checking.
+int checking_disabled = 0;
+
+// Stack structure for tracking whether the current execution is parallel, i.e.,
+// whether there are any unsynced spawns in the program execution.
+Stack_t<uint8_t> parallel_execution;
+Stack_t<bool> spbags_frame_skipped;
+
+// Storage for old values of stack_low_addr and stack_high_addr, saved when
+// entering a cilkified region.
+uintptr_t uncilkified_stack_low_addr = (uintptr_t)-1;
+uintptr_t uncilkified_stack_high_addr = 0;
+
+// Stack for tracking whether a stack switch has occurred.
+Stack_t<uint8_t> switched_stack;
+
+// Stack structures for keeping track of MAAPs for pointer arguments to function
+// calls.
+Stack_t<std::pair<csi_id_t, MAAP_t>> MAAPs;
+Stack_t<unsigned> MAAP_counts;
+
+// Raise a link-time error if the user attempts to use Cilksan with -static.
+//
+// This trick is copied from AddressSanitizer.  We only use this trick on Linux,
+// since static linking is not supported on MacOSX anyway.
+#ifdef __linux__
+#include <link.h>
+void *CilksanDoesNotSupportStaticLinkage() {
+  // This will fail to link with -static.
+  return &_DYNAMIC;  // defined in link.h
+}
+#endif // __linux__
 
 // --------------------- stuff from racedetector ---------------------------
 
@@ -30,21 +82,46 @@ extern uintptr_t *store_pc;
 //  Analysis data structures and fields
 // -------------------------------------------------------------------------
 
-// List used for the disjoint set data structure's find_set operation.
-List_t disjoint_set_list;
+template <>
+DisjointSet_t<call_stack_t>::DisjointSet_t(call_stack_t data, SBag_t *bag)
+    : _parent_or_bag(bag), _data(data), _rank(0), _ref_count(0)
+#if DISJOINTSET_DEBUG
+      ,
+      _ID(DS_ID++), _destructing(false)
+#endif
+{
+  bag->set_ds(this);
+
+  WHEN_DISJOINTSET_DEBUG(
+      DBG_TRACE(DEBUG_DISJOINTSET, "Creating DS %ld for SBag %p\n", _ID, bag));
+  WHEN_CILKSAN_DEBUG(debug_count++);
+}
+
+template <>
+DisjointSet_t<call_stack_t>::DisjointSet_t(call_stack_t data, PBag_t *bag)
+    : _parent_or_bag(bag), _data(data), _rank(0), _ref_count(0)
+#if DISJOINTSET_DEBUG
+      ,
+      _ID(DS_ID++), _destructing(false)
+#endif
+{
+  bag->set_ds(this);
+
+  WHEN_DISJOINTSET_DEBUG(
+      DBG_TRACE(DEBUG_DISJOINTSET, "Creating DS %ld for PBag %p\n", _ID, bag));
+  WHEN_CILKSAN_DEBUG(debug_count++);
+}
+
+static_assert(alignof(DisjointSet_t<call_stack_t>) >= 8,
+              "Bad alignment for DisjointSet_t structure.");
 
 #if CILKSAN_DEBUG
 template<>
-long DisjointSet_t<SPBagInterface *>::debug_count = 0;
+long DisjointSet_t<call_stack_t>::debug_count = 0;
 
 long SBag_t::debug_count = 0;
 long PBag_t::debug_count = 0;
 #endif
-
-// // Free list for disjoint-set nodes
-// template<>
-// DisjointSet_t<SPBagInterface *> *
-// DisjointSet_t<SPBagInterface *>::free_list = nullptr;
 
 // Free lists for SBags and PBags
 SBag_t::FreeNode_t *SBag_t::free_list = nullptr;
@@ -55,12 +132,6 @@ PBag_t::FreeNode_t *PBag_t::free_list = nullptr;
 // Range of stack used by the process
 uintptr_t stack_low_addr = (uintptr_t)-1;
 uintptr_t stack_high_addr = 0;
-
-// Helper function to check if an address is in the stack.
-static inline bool is_on_stack(uintptr_t addr) {
-  // cilksan_assert(stack_high_addr != stack_low_addr);
-  return (addr <= stack_high_addr && addr >= stack_low_addr);
-}
 
 // Free list for call-stack nodes
 call_stack_node_t *call_stack_node_t::free_list = nullptr;
@@ -80,8 +151,12 @@ MALineAllocator &
     SimpleDictionary<2>::MAAlloc = CilkSanImpl.getMALineAllocator(2);
 
 template <>
-DisjointSet_t<SPBagInterface *>::DJSAllocator &
-    DisjointSet_t<SPBagInterface *>::Alloc = CilkSanImpl.getDJSAllocator();
+DisjointSet_t<call_stack_t>::DSAllocator &
+    DisjointSet_t<call_stack_t>::Alloc = CilkSanImpl.getDSAllocator();
+
+template <>
+DisjointSet_t<call_stack_t>::List_t &
+    DisjointSet_t<call_stack_t>::disjoint_set_list = CilkSanImpl.getDSList();
 
 ////////////////////////////////////////////////////////////////////////
 // Events functions
@@ -95,7 +170,6 @@ CilkSanImpl_t::merge_bag_from_returning_child(bool returning_from_detach,
   FrameData_t *child = frame_stack.head();
   cilksan_assert(parent->Sbag);
   cilksan_assert(child->Sbag);
-  // cilksan_assert(!child->Pbag);
 
   if (returning_from_detach) {
     // We are returning from a detach.  Merge the child S- and P-bags
@@ -103,47 +177,40 @@ CilkSanImpl_t::merge_bag_from_returning_child(bool returning_from_detach,
 
     // Get the parent P-bag.
     cilksan_assert(parent->Pbags && "No parent Pbags array");
-    DisjointSet_t<SPBagInterface *> *parent_pbag =
-        parent->Pbags[parent_sync_reg];
+    PBag_t *parent_pbag = parent->Pbags[parent_sync_reg];
     if (!parent_pbag) { // lazily create PBag when needed
-      DBG_TRACE(DEBUG_BAGS,
-                "frame %ld creates a PBag ",
-                parent->Sbag->get_set_node()->get_func_id());
-      parent_pbag = new DisjointSet_t<SPBagInterface *>(
-          new PBag_t(parent->Sbag->get_node()));
+      DBG_TRACE(DEBUG_BAGS, "frame %ld creates a PBag ",
+                parent->Sbag->get_func_id());
+      parent_pbag = createNewPBag();
       parent->set_pbag(parent_sync_reg, parent_pbag);
       DBG_TRACE(DEBUG_BAGS, "%p\n", parent_pbag);
     }
 
-    cilksan_assert(parent_pbag && parent_pbag->get_set_node()->is_PBag());
     // Combine child S-bag into parent P-bag.
-    cilksan_assert(child->Sbag->get_set_node()->is_SBag());
     if (child->is_Sbag_used()) {
       DBG_TRACE(
           DEBUG_BAGS,
           "Merge S-bag from detached child %ld to P-bag %d from parent %ld.\n",
-          child->Sbag->get_set_node()->get_func_id(), parent_sync_reg,
-          parent->Sbag->get_set_node()->get_func_id());
+          child->Sbag->get_func_id(), parent_sync_reg,
+          parent->Sbag->get_func_id());
       parent_pbag->combine(child->Sbag);
       // parent->set_Pbag_used();
       // The child entry of frame_stack keeps child->Sbag alive until its bags
       // are reset at the end of this function.
-      cilksan_assert(child->Sbag->get_set_node()->is_PBag());
     }
 
     // Combine child P-bag into parent P-bag.
     if (child->Pbags) {
       for (unsigned i = 0; i < child->num_Pbags; ++i) {
         if (child->Pbags[i]) {
-          cilksan_assert(child->Pbags[i]->get_set_node()->is_PBag());
           // if (child->is_Pbag_used()) {
           DBG_TRACE(DEBUG_BAGS,
-                    "Merge P-bag %d from spawned child %ld to P-bag %d from parent %ld.\n",
-                    i, child->Sbag->get_set_node()->get_func_id(), parent_sync_reg,
-                    parent->Sbag->get_set_node()->get_func_id());
+                    "Merge P-bag %d from spawned child %ld to P-bag %d from "
+                    "parent %ld.\n",
+                    i, child->Sbag->get_func_id(), parent_sync_reg,
+                    parent->Sbag->get_func_id());
           parent_pbag->combine(child->Pbags[i]);
           // parent->set_Pbag_used();
-          cilksan_assert(child->Pbags[i]->get_set_node()->is_PBag());
           // }
         }
       }
@@ -152,12 +219,11 @@ CilkSanImpl_t::merge_bag_from_returning_child(bool returning_from_detach,
   } else {
     // We are returning from a call.  Merge the child S-bag into the
     // parent S-bag, and merge the child P-bags into the parent P-bag.
-    cilksan_assert(parent->Sbag->get_set_node()->is_SBag());
+    // cilksan_assert(parent->Sbag->get_set_node()->is_SBag());
     if (child->is_Sbag_used()) {
       DBG_TRACE(DEBUG_BAGS,
                 "Merge S-bag from called child %ld to S-bag from parent %ld.\n",
-                child->Sbag->get_set_node()->get_func_id(),
-                parent->Sbag->get_set_node()->get_func_id());
+                child->Sbag->get_func_id(), parent->Sbag->get_func_id());
       parent->Sbag->combine(child->Sbag);
       parent->set_Sbag_used();
     }
@@ -176,38 +242,31 @@ CilkSanImpl_t::merge_bag_from_returning_child(bool returning_from_detach,
     if (__builtin_expect(merge_child_pbags, false)) {
       // Get the parent P-bag.
       cilksan_assert(parent->Pbags && "No parent Pbags array");
-      DisjointSet_t<SPBagInterface *> *parent_pbag =
-          parent->Pbags[parent_sync_reg];
+      PBag_t *parent_pbag = parent->Pbags[parent_sync_reg];
       if (!parent_pbag) { // lazily create PBag when needed
-        DBG_TRACE(DEBUG_BAGS,
-                  "frame %ld creates a PBag ",
-                  parent->Sbag->get_set_node()->get_func_id());
-        parent_pbag = new DisjointSet_t<SPBagInterface *>(
-            new PBag_t(parent->Sbag->get_node()));
+        DBG_TRACE(DEBUG_BAGS, "frame %ld creates a PBag ",
+                  parent->Sbag->get_func_id());
+        parent_pbag = createNewPBag();
         parent->set_pbag(parent_sync_reg, parent_pbag);
         DBG_TRACE(DEBUG_BAGS, "%p\n", parent_pbag);
       }
-      cilksan_assert(parent_pbag && parent_pbag->get_set_node()->is_PBag());
+      cilksan_assert(parent_pbag);
       for (unsigned i = 0; i < child->num_Pbags; ++i) {
         // Combine child P-bags into parent P-bag.
-        cilksan_assert(child->Pbags[i]->get_set_node()->is_PBag());
         // if (child->is_Pbag_used()) {
         DBG_TRACE(DEBUG_BAGS,
-                  "Merge P-bag %d from called child %ld to P-bag %d from parent %ld.\n",
+                  "Merge P-bag %d from called child %ld to P-bag %d from "
+                  "parent %ld.\n",
                   i, child->frame_id, parent_sync_reg,
-                  parent->Sbag->get_set_node()->get_func_id());
+                  parent->Sbag->get_func_id());
         parent_pbag->combine(child->Pbags[i]);
         // parent->set_Pbag_used();
-        cilksan_assert(child->Pbags[i]->get_set_node()->is_PBag());
         // }
       }
     }
   }
   DBG_TRACE(DEBUG_BAGS, "After merge, parent set node func id: %ld.\n",
-            parent->Sbag->get_set_node()->get_func_id());
-  cilksan_level_assert(DEBUG_BAGS,
-                       parent->Sbag->get_node()->get_func_id() ==
-                           parent->Sbag->get_set_node()->get_func_id());
+            parent->Sbag->get_func_id());
 
   // Reset child's bags.
   child->set_sbag(NULL);
@@ -230,7 +289,7 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
     FrameData_t *parent = frame_stack.ancestor(1);
     DBG_TRACE(DEBUG_CALLBACK, "parent frame %ld.\n", parent->frame_id);
   });
-  DisjointSet_t<SPBagInterface *> *child_sbag;
+  SBag_t *child_sbag;
 
   FrameData_t *child = frame_stack.head();
   cilksan_assert(child->Sbag == NULL);
@@ -238,8 +297,7 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
   cilksan_assert(child->num_Pbags == 0);
 
   DBG_TRACE(DEBUG_BAGS, "Creating SBag for frame %ld\n", frame_id);
-  child_sbag =
-    new DisjointSet_t<SPBagInterface *>(new SBag_t(frame_id, call_stack));
+  child_sbag = createNewSBag(frame_id, call_stack);
 
   child->init_new_function(child_sbag);
 
@@ -252,7 +310,6 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
   }
 
   // We do the assertion after the init so that ref_count is 1.
-  cilksan_assert(child_sbag->get_set_node()->is_SBag());
 
   WHEN_CILKSAN_DEBUG(frame_stack.head()->frame_id = frame_id);
 
@@ -306,27 +363,19 @@ inline void CilkSanImpl_t::return_from_detach(unsigned sync_reg) {
 /// Action performed immediately after passing a sync.
 inline void CilkSanImpl_t::complete_sync(unsigned sync_reg) {
   FrameData_t *f = frame_stack.head();
-  DBG_TRACE(DEBUG_CALLBACK, "frame %d done sync\n",
-            f->Sbag->get_node()->get_func_id());
+  DBG_TRACE(DEBUG_CALLBACK, "frame %d done sync\n", f->Sbag->get_func_id());
 
-  cilksan_assert(f->Sbag->get_set_node()->is_SBag());
   // Pbag could be NULL if we encounter a sync without any spawn (i.e., any Cilk
   // function that executes the base case)
   cilksan_assert(sync_reg < f->num_Pbags && "Invalid sync_reg");
   cilksan_assert(f->Pbags && "Cannot sync NULL pbags array");
   if (f->Pbags[sync_reg]) {
-    DBG_TRACE(DEBUG_BAGS,
-              "Merge P-bag %d (%p) in frame %ld into S-bag.\n", sync_reg,
-              f->Pbags[sync_reg], f->Sbag->get_set_node()->get_func_id());
-    cilksan_assert(f->Pbags[sync_reg]->get_set_node()->is_PBag());
+    DBG_TRACE(DEBUG_BAGS, "Merge P-bag %d (%p) in frame %ld into S-bag.\n",
+              sync_reg, f->Pbags[sync_reg], f->Sbag->get_func_id());
     // if (f->is_Pbag_used()) {
     f->Sbag->combine(f->Pbags[sync_reg]);
-    cilksan_assert(f->Pbags[sync_reg]->get_set_node()->is_SBag());
     f->set_Sbag_used();
     // }
-    cilksan_level_assert(DEBUG_BAGS,
-                         f->Sbag->get_node()->get_func_id() ==
-                             f->Sbag->get_set_node()->get_func_id());
     f->set_pbag(sync_reg, NULL);
   }
 }
@@ -345,7 +394,6 @@ void CilkSanImpl_t::do_enter(unsigned num_sync_reg) {
   frame_stack.head()->frame_data.entry_type = SPAWNER;
   frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
 
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   WHEN_CILKSAN_DEBUG(
       cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
@@ -363,7 +411,6 @@ void CilkSanImpl_t::do_enter_helper(unsigned num_sync_reg) {
   frame_stack.head()->frame_data.entry_type = DETACHER;
   frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
 
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   WHEN_CILKSAN_DEBUG(
       cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
@@ -378,7 +425,6 @@ void CilkSanImpl_t::do_detach() {
   update_strand_stats();
   shadow_memory->clearOccupied();
 
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_detach\n");
 
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == DETACH));
@@ -386,11 +432,10 @@ void CilkSanImpl_t::do_detach() {
 
   // At this point, the frame_stack.head is still the parent (spawning) frame
   WHEN_CILKSAN_DEBUG({
-      FrameData_t *parent = frame_stack.head();
-      DBG_TRACE(DEBUG_CALLBACK,
-                "frame %ld about to spawn.\n",
-                parent->Sbag->get_node()->get_func_id());
-    });
+    FrameData_t *parent = frame_stack.head();
+    DBG_TRACE(DEBUG_CALLBACK, "frame %ld about to spawn.\n",
+              parent->Sbag->get_func_id());
+  });
 }
 
 void CilkSanImpl_t::do_detach_continue() {
@@ -414,9 +459,8 @@ void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
     FrameData_t *func = frame_stack.head();
     func->frame_data.frame_type = LOOP_FRAME;
     // Create a new iteration bag for this frame.
-    DBG_TRACE(DEBUG_BAGS,
-              "frame %ld creates an Iter-bag ",
-              func->Sbag->get_set_node()->get_func_id());
+    DBG_TRACE(DEBUG_BAGS, "frame %ld creates an Iter-bag ",
+              func->Sbag->get_func_id());
     func->create_iterbag();
     DBG_TRACE(DEBUG_BAGS, "%p\n", func->Iterbag);
     // Finish initializing the frame.
@@ -438,34 +482,28 @@ void CilkSanImpl_t::do_loop_iteration_end() {
   FrameData_t *func = frame_stack.head();
   cilksan_assert(in_loop());
   // Get this frame's P-bag, creating it if necessary.
-  DisjointSet_t<SPBagInterface *> *my_pbag = func->Pbags[0];
+  PBag_t *my_pbag = func->Pbags[0];
   if (!my_pbag) {
-    DBG_TRACE(DEBUG_BAGS,
-              "frame %ld creates a P-bag ",
-              func->Sbag->get_set_node()->get_func_id());
-    my_pbag = new DisjointSet_t<SPBagInterface *>(
-        new PBag_t(func->Sbag->get_node()));
+    DBG_TRACE(DEBUG_BAGS, "frame %ld creates a P-bag ",
+              func->Sbag->get_func_id());
+    my_pbag = createNewPBag();
     func->set_pbag(0, my_pbag);
     DBG_TRACE(DEBUG_BAGS, "%p\n", my_pbag);
   }
-  cilksan_assert(my_pbag && my_pbag->get_set_node()->is_PBag());
+  cilksan_assert(my_pbag);
 
   // Merge the S-bag into the P-bag.
-  DisjointSet_t<SPBagInterface *> *my_sbag = func->Sbag;
-  uint64_t func_id = static_cast<SBag_t *>(my_sbag->get_node())->get_func_id();
+  SBag_t *my_sbag = func->Sbag;
+  uint64_t func_id = my_sbag->get_func_id();
   if (func->is_Sbag_used()) {
     DBG_TRACE(DEBUG_BAGS,
               "Merge S-bag in loop frame %ld into P-bag.\n", func_id);
     my_pbag->combine(my_sbag);
     // func->set_Pbag_used();
-    cilksan_assert(func->Sbag->get_set_node()->is_PBag());
 
     // Create a new S-bag for the frame.
     DBG_TRACE(DEBUG_BAGS, "frame %ld creates an S-bag ", func_id);
-    func->set_sbag(new DisjointSet_t<SPBagInterface *>(
-                       new SBag_t(func_id, call_stack)));
-    static_cast<PBag_t *>(my_pbag->get_node())
-        ->update_sibling(func->Sbag->get_node());
+    func->set_sbag(createNewSBag(func_id, call_stack));
     DBG_TRACE(DEBUG_BAGS, "%p\n", func->Sbag);
   }
 
@@ -477,7 +515,6 @@ void CilkSanImpl_t::do_loop_iteration_end() {
                 "Merge Iter-bag in loop frame %ld into P-bag.\n", func_id);
       my_pbag->combine(func->Iterbag);
       // func->set_Pbag_used();
-      cilksan_assert(func->Iterbag->get_set_node()->is_PBag());
 
       // Create a new Iter-bag.
       DBG_TRACE(DEBUG_BAGS, "frame %ld creates an Iter-bag ", func_id);
@@ -492,27 +529,22 @@ void CilkSanImpl_t::do_loop_end(unsigned sync_reg) {
   FrameData_t *func = frame_stack.head();
   cilksan_assert(in_loop());
   // Get this frame's P-bag, creating it if necessary.
-  DisjointSet_t<SPBagInterface *> *my_pbag = func->Pbags[0];
+  PBag_t *my_pbag = func->Pbags[0];
   if (!my_pbag) {
-    DBG_TRACE(DEBUG_BAGS,
-              "frame %ld creates a P-bag ",
-              func->Sbag->get_set_node()->get_func_id());
-    my_pbag =
-      new DisjointSet_t<SPBagInterface *>(
-          new PBag_t(func->Sbag->get_node()));
+    DBG_TRACE(DEBUG_BAGS, "frame %ld creates a P-bag ",
+              func->Sbag->get_func_id());
+    my_pbag = createNewPBag();
     func->set_pbag(0, my_pbag);
     DBG_TRACE(DEBUG_BAGS, "%p\n", my_pbag);
   }
-  cilksan_assert(my_pbag && my_pbag->get_set_node()->is_PBag());
+  cilksan_assert(my_pbag);
 
   // Combine the Iter-bag into this P-bag.
   if (func->is_Iterbag_used()) {
-    DBG_TRACE(DEBUG_BAGS,
-              "Merge Iter-bag in loop frame %ld into P-bag.\n",
-              my_pbag->get_set_node()->get_func_id());
+    DBG_TRACE(DEBUG_BAGS, "Merge Iter-bag in loop frame %ld into P-bag.\n",
+              my_pbag->get_func_id());
     my_pbag->combine(func->Iterbag);
     // func->set_Pbag_used();
-    cilksan_assert(func->Iterbag->get_set_node()->is_PBag());
   }
   // The loop frame is done, so clear the Iter-bag.
   func->set_iterbag(nullptr);
@@ -524,14 +556,13 @@ void CilkSanImpl_t::do_loop_end(unsigned sync_reg) {
 void CilkSanImpl_t::do_sync(unsigned sync_reg) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "frame %ld cilk_sync_begin\n",
-            frame_stack.head()->Sbag->get_node()->get_func_id());
+            frame_stack.head()->Sbag->get_func_id());
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = CILK_SYNC);
 
   update_strand_stats();
   shadow_memory->clearOccupied();
 
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_sync_end\n");
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == CILK_SYNC));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
@@ -564,7 +595,6 @@ void CilkSanImpl_t::do_leave(unsigned sync_reg) {
   else
     leave_cilk_function(sync_reg);
 
-  WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_leave_end\n");
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == LEAVE_FRAME_OR_HELPER));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
@@ -723,8 +753,6 @@ __attribute__((always_inline)) void check_data_races_and_update_with_read(
   shadow_memory.update_with_read(acc_id, type, addr, mem_size, f);
   shadow_memory.update_lockers_with_read(acc_id, type, addr, mem_size, f,
                                          lockset);
-  // shadow_memory.check_data_race_with_prev_write<true>(
-  //     acc_id, type, addr, mem_size, f, lockset);
   shadow_memory.check_data_race_with_prev_write<true>(acc_id, type, addr,
                                                       mem_size, f, lockset);
 }
@@ -925,6 +953,9 @@ inline void CilkSanImpl_t::print_stats() {
     std::cout << "max writes," << writes.first << "," << writes.second << "\n";
 }
 
+///////////////////////////////////////////////////////////////////////////
+// Tool initialization and deinitialization
+
 void CilkSanImpl_t::deinit() {
   static bool deinit = false;
   if (!deinit)
@@ -952,31 +983,74 @@ void CilkSanImpl_t::deinit() {
   cilksan_assert(frame_stack.size() == 0);
 
   WHEN_CILKSAN_DEBUG({
-      if (DisjointSet_t<SPBagInterface *>::debug_count != 0)
-        std::cerr << "DisjointSet_t<SPBagInterface *>::debug_count = "
-                  << DisjointSet_t<SPBagInterface *>::debug_count << "\n";
+      if (DisjointSet_t<call_stack_t>::debug_count != 0)
+        std::cerr << "DisjointSet_t<call_stack_t>::debug_count = "
+                  << DisjointSet_t<call_stack_t>::debug_count << "\n";
       if (SBag_t::debug_count != 0)
         std::cerr << "SBag_t::debug_count = "
                   << SBag_t::debug_count << "\n";
       if (PBag_t::debug_count != 0)
         std::cerr << "PBag_t::debug_count = "
                   << PBag_t::debug_count << "\n";
-      // cilksan_assert(DisjointSet_t<SPBagInterface *>::debug_count == 0);
-      // cilksan_assert(SBag_t::debug_count == 0);
-      // cilksan_assert(PBag_t::debug_count == 0);
     });
 
   // Free the call-stack nodes in the free list.
   call_stack_node_t::cleanup_freelist();
 
-  // // Free the disjoint-set nodes in the free list.
-  // DisjointSet_t<SPBagInterface *>::cleanup_freelist();
-
   // Free the free lists for SBags and PBags.
   SBag_t::cleanup_freelist();
   PBag_t::cleanup_freelist();
 
-  disjoint_set_list.free_list();
+  DisjointSet_t<call_stack_t>::cleanup();
+}
+
+// called upon process exit
+static void csan_destroy(void) {
+  disable_instrumentation();
+  disable_checking();
+  CilkSanImpl.deinit();
+  fflush(stdout);
+  if (call_pc) {
+    free(call_pc);
+    call_pc = nullptr;
+  }
+  if (spawn_pc) {
+    free(spawn_pc);
+    spawn_pc = nullptr;
+  }
+  if (loop_pc) {
+    free(loop_pc);
+    loop_pc = nullptr;
+  }
+  if (load_pc) {
+    free(load_pc);
+    load_pc = nullptr;
+  }
+  if (store_pc) {
+    free(store_pc);
+    store_pc = nullptr;
+  }
+  if (alloca_pc) {
+    free(alloca_pc);
+    alloca_pc = nullptr;
+  }
+  if (allocfn_pc) {
+    free(allocfn_pc);
+    allocfn_pc = nullptr;
+  }
+  if (allocfn_prop) {
+    free(allocfn_prop);
+    allocfn_prop = nullptr;
+  }
+  if (free_pc) {
+    free(free_pc);
+    free_pc = nullptr;
+  }
+}
+
+CilkSanImpl_t::~CilkSanImpl_t() {
+  csan_destroy();
+  CILKSAN_INITIALIZED = false;
 }
 
 void CilkSanImpl_t::init() {
@@ -1001,21 +1075,15 @@ void CilkSanImpl_t::init() {
 
   std::cout << "Running Cilksan race detector.\n";
 
-  // cilksan_assert(stack_high_addr != 0 && stack_low_addr != 0);
-
   // these are true upon creation of the stack
   cilksan_assert(frame_stack.size() == 1);
-  // cilksan_assert(entry_stack.size() == 1);
-  // // actually only used for debugging of reducer race detection
-  // WHEN_CILKSAN_DEBUG(rts_deque_begin = rts_deque_end = 1);
 
   shadow_memory = new SimpleShadowMem(*this);
 
   // for the main function before we enter the first Cilk context
-  DisjointSet_t<SPBagInterface *> *sbag;
+  SBag_t *sbag;
   DBG_TRACE(DEBUG_BAGS, "Creating SBag for frame %ld\n", frame_id);
-  sbag = new DisjointSet_t<SPBagInterface *>(new SBag_t(frame_id, call_stack));
-  cilksan_assert(sbag->get_set_node()->is_SBag());
+  sbag = createNewSBag(frame_id, call_stack);
   frame_stack.head()->set_sbag(sbag);
   WHEN_CILKSAN_DEBUG(frame_stack.head()->frame_data.frame_type = FULL_FRAME);
   WHEN_CILKSAN_DEBUG(CILKSAN_INITIALIZED = true);

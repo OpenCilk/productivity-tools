@@ -13,6 +13,8 @@
 #include "race_info.h"
 #include "spbag.h"
 
+using DS_t = DisjointSet_t<call_stack_t>;
+
 class MemoryAccess_t {
   static constexpr unsigned VERSION_SHIFT = 48;
   static constexpr unsigned TYPE_SHIFT = 44;
@@ -20,67 +22,84 @@ class MemoryAccess_t {
   static constexpr csi_id_t TYPE_MASK = ((1UL << VERSION_SHIFT) - 1) & ~ID_MASK;
   static constexpr csi_id_t UNKNOWN_CSI_ACC_ID = UNKNOWN_CSI_ID & ID_MASK;
 
-  using DJS_t = DisjointSet_t<SPBagInterface *>;
-
   static csi_id_t makeTypedID(csi_id_t acc_id, MAType_t type) {
     return (acc_id & ID_MASK) | (static_cast<csi_id_t>(type) << TYPE_SHIFT);
   }
+
+  static constexpr uintptr_t PTR_MASK = (1UL << VERSION_SHIFT) - 1;
+  DS_t *getFuncFromVerFunc() const {
+    return reinterpret_cast<DS_t *>(ver_func & PTR_MASK);
+  }
+  version_t getVersionFromVerFunc() const {
+    return static_cast<version_t>(ver_func >> VERSION_SHIFT);
+  }
+
+  static uintptr_t makeVerFunc(DS_t *func, version_t version) {
+    return reinterpret_cast<uintptr_t>(func) |
+           (static_cast<uintptr_t>(version) << VERSION_SHIFT);
+  }
+  void clearVerFunc() {
+    ver_func = reinterpret_cast<uintptr_t>(nullptr);
+  }
+  bool haveVerFunc() const {
+    return reinterpret_cast<uintptr_t>(nullptr) != ver_func;
+  }
+
 public:
-  DJS_t *func = nullptr;
+  uintptr_t ver_func = reinterpret_cast<uintptr_t>(nullptr);
   csi_id_t ver_acc_id = UNKNOWN_CSI_ACC_ID;
 
   // Default constructor
   MemoryAccess_t() {}
-  // Constructors
-  MemoryAccess_t(DJS_t *func, csi_id_t acc_id, MAType_t type)
-      : func(func), ver_acc_id(makeTypedID(acc_id, type)) {
+  MemoryAccess_t(DS_t *func, version_t version, csi_id_t acc_id, MAType_t type)
+      : ver_func(makeVerFunc(func, version)),
+        ver_acc_id(makeTypedID(acc_id, type)) {
     if (func) {
       func->inc_ref_count();
-      ver_acc_id |= static_cast<csi_id_t>(func->get_node()->get_version())
-                    << VERSION_SHIFT;
     }
   }
-  MemoryAccess_t(DJS_t *func, csi_id_t typed_id)
-      : func(func), ver_acc_id(typed_id) {
+  MemoryAccess_t(DS_t *func, version_t version, csi_id_t typed_id)
+      : ver_func(makeVerFunc(func, version)), ver_acc_id(typed_id) {
     if (func) {
       func->inc_ref_count();
-      ver_acc_id |= static_cast<csi_id_t>(func->get_node()->get_version())
-                    << VERSION_SHIFT;
     }
   }
+
   // Copy constructor
   MemoryAccess_t(const MemoryAccess_t &copy)
-      : func(copy.func), ver_acc_id(copy.ver_acc_id) {
-    if (func)
-      func->inc_ref_count();
+      : ver_func(copy.ver_func), ver_acc_id(copy.ver_acc_id) {
+    if (haveVerFunc())
+      getFuncFromVerFunc()->inc_ref_count();
   }
+
   // Move constructor
   MemoryAccess_t(const MemoryAccess_t &&move)
-      : func(move.func), ver_acc_id(move.ver_acc_id) {}
+      : ver_func(move.ver_func), ver_acc_id(move.ver_acc_id) {}
+
   // Destructor
   ~MemoryAccess_t() {
-    if (func) {
-      func->dec_ref_count();
-      func = nullptr;
+    if (haveVerFunc()) {
+      getFuncFromVerFunc()->dec_ref_count();
+      clearVerFunc();
     }
   }
 
   // Returns true if this MemoryAccess_t is valid, meaning it refers to an
   // actual memory access in the program-under-test.
   bool isValid() const {
-    return (nullptr != func);
+    return haveVerFunc();
   }
 
   // Render this MemoryAccess_t invalid.
   void invalidate() {
-    if (func)
-      func->dec_ref_count();
-    func = nullptr;
+    if (haveVerFunc())
+      getFuncFromVerFunc()->dec_ref_count();
+    clearVerFunc();
     ver_acc_id = UNKNOWN_CSI_ACC_ID;
   }
 
   // Get the disjoint-set node for the function containing this memory access.
-  DJS_t *getFunc() const { return func; }
+  DS_t *getFunc() const { return getFuncFromVerFunc(); }
 
   // Get the CSI ID for this memory access.
   csi_id_t getAccID() const {
@@ -94,61 +113,55 @@ public:
     return static_cast<MAType_t>((ver_acc_id & TYPE_MASK) >> TYPE_SHIFT);
   }
   uint16_t getVersion() const {
-    return static_cast<uint16_t>(ver_acc_id >> VERSION_SHIFT);
+    return getVersionFromVerFunc();
   }
   AccessLoc_t getLoc() const {
     if (!isValid())
       return AccessLoc_t();
-    cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
-    return AccessLoc_t(
-        getAccID(), getAccType(),
-        *static_cast<SBag_t *>(func->get_node())->get_call_stack());
+    DS_t *func = getFunc();
+    return AccessLoc_t(getAccID(), getAccType(), func->get_data());
   }
 
   // Set the fields of this MemoryAccess_t directly.  This method is used to
   // avoid unnecessary updates to reference counts that may be incurred by using
   // the copy contructor.
-  void set(DJS_t *func, csi_id_t acc_id, MAType_t type) {
-    if (this->func != func) {
+  void set(DS_t *func, version_t version, csi_id_t acc_id, MAType_t type) {
+    DS_t *this_func = getFuncFromVerFunc();
+    if (this_func != func) {
       if (func)
         func->inc_ref_count();
-      if (this->func)
-        this->func->dec_ref_count();
-      this->func = func;
+      if (this_func)
+        this_func->dec_ref_count();
+      ver_func = makeVerFunc(func, version);
     }
     ver_acc_id = makeTypedID(acc_id, type);
     if (func) {
-      cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
-      ver_acc_id |= static_cast<csi_id_t>(
-                        static_cast<SBag_t *>(func->get_node())->get_version())
-                    << VERSION_SHIFT;
+      cilksan_level_assert(DEBUG_BASIC, func->is_sbag());
     }
   }
-  void set(DJS_t *func, csi_id_t typed_id) {
-    if (this->func != func) {
+  void set(DS_t *func, version_t version, csi_id_t typed_id) {
+    DS_t *this_func = getFuncFromVerFunc();
+    if (this_func != func) {
       if (func)
         func->inc_ref_count();
-      if (this->func)
-        this->func->dec_ref_count();
-      this->func = func;
+      if (this_func)
+        this_func->dec_ref_count();
+      ver_func = makeVerFunc(func, version);
     }
     ver_acc_id = typed_id;
     if (func) {
-      cilksan_level_assert(DEBUG_BASIC, func->get_node()->is_SBag());
-      ver_acc_id |= static_cast<csi_id_t>(
-                        static_cast<SBag_t *>(func->get_node())->get_version())
-                    << VERSION_SHIFT;
+      cilksan_level_assert(DEBUG_BASIC, func->is_sbag());
     }
   }
 
   // Copy assignment
   MemoryAccess_t &operator=(const MemoryAccess_t &copy) {
-    if (func != copy.func) {
-      if (copy.func)
-        copy.func->inc_ref_count();
-      if (func)
-        func->dec_ref_count();
-      func = copy.func;
+    if (ver_func != copy.ver_func) {
+      if (copy.haveVerFunc())
+        copy.getFuncFromVerFunc()->inc_ref_count();
+      if (haveVerFunc())
+        getFuncFromVerFunc()->dec_ref_count();
+      ver_func = copy.ver_func;
     }
     ver_acc_id = copy.ver_acc_id;
 
@@ -157,32 +170,15 @@ public:
 
   // Move assignment
   MemoryAccess_t &operator=(MemoryAccess_t &&move) {
-    if (func)
-      func->dec_ref_count();
-    func = move.func;
+    if (haveVerFunc())
+      getFuncFromVerFunc()->dec_ref_count();
+    ver_func = move.ver_func;
     ver_acc_id = move.ver_acc_id;
     return *this;
   }
 
-  void inc_ref_counts(int64_t count) {
-    assert(func);
-    func->inc_ref_count(count);
-  }
-
-  void dec_ref_counts(int64_t count) {
-    if (!func->dec_ref_count(count))
-      func = nullptr;
-  }
-
-  void inherit(const MemoryAccess_t &copy) {
-    if (func)
-      func->dec_ref_count();
-    func = copy.func;
-    ver_acc_id = copy.ver_acc_id;
-  }
-
   bool operator==(const MemoryAccess_t &that) const {
-    return (func == that.func);
+    return (ver_func == that.ver_func);
   }
 
   bool operator!=(const MemoryAccess_t &that) const {
@@ -192,7 +188,7 @@ public:
 #if CILKSAN_DEBUG
   inline friend
   std::ostream& operator<<(std::ostream &os, const MemoryAccess_t &acc) {
-    os << "function " << acc.func->get_node()->get_func_id()
+    os << "function " << acc.getFunc()
        << ", acc id " << acc.getAccID() << ", type " << acc.getAccType()
        << ", version " << acc.getVersion();
     return os;
@@ -244,22 +240,21 @@ public:
   // Logic to check if the given previous MemoryAccess_t is logically in
   // parallel with the current strand.
   __attribute__((always_inline)) static bool
-  previousAccessInParallel(MemoryAccess_t *PrevAccess, FrameData_t *f) {
+  previousAccessInParallel(MemoryAccess_t *PrevAccess, const FrameData_t *f) {
     // Get the function for this previous access
-    auto Func = PrevAccess->getFunc();
-    // Get the bag for the previous access
-    SPBagInterface *LCA = Func->get_set_node();
-    // If it's a P-bag, then we have a parallel access.
+    uintptr_t ver_func = PrevAccess->ver_func;
+    DS_t *Func = reinterpret_cast<DS_t *>(ver_func & PTR_MASK);
+    version_t version = static_cast<version_t>(ver_func >> VERSION_SHIFT);
 
-    // If memory is allocated on stack, the accesses race with each other only
-    // if the mem location is allocated in shared ancestor's stack.  We don't
-    // need to check for this because we clear shadow memory; non-shared stack
-    // can't race because earlier one would've been cleared.
-    return LCA->is_PBag() || f->check_parallel_iter(static_cast<SBag_t *>(LCA),
-                                                    PrevAccess->getVersion());
+    // Get the Sbag for the previous access or null if the previous access is in
+    // a Pbag.
+    SBag_t *LCASbagOrNull = Func->get_sbag_or_null();
+    return (nullptr == LCASbagOrNull) ||
+           f->check_parallel_iter(LCASbagOrNull, version);
   }
   __attribute__((always_inline)) static bool
-  previousAccessInParallel(const MemoryAccess_t *PrevAccess, FrameData_t *f) {
+  previousAccessInParallel(const MemoryAccess_t *PrevAccess,
+                           const FrameData_t *f) {
     return previousAccessInParallel(const_cast<MemoryAccess_t *>(PrevAccess),
                                     f);
   }

@@ -10,7 +10,7 @@
 #include "driver.h"
 
 #define START_HOOK(call_id)                                                    \
-  if (!TOOL_INITIALIZED || !should_check())                                    \
+  if (!CILKSAN_INITIALIZED || !should_check())                                 \
     return;                                                                    \
   if (__builtin_expect(!call_pc[call_id], false))                              \
     call_pc[call_id] = CALLERPC;                                               \
@@ -69,7 +69,7 @@ static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
 CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
                                         const csi_id_t func_id,
                                         unsigned MAAP_count) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -84,9 +84,11 @@ CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
 
   // Alert the user of the function that is not handled.
   const csan_source_loc_t *src_loc = __csan_get_call_source_loc(call_id);
+  const csan_source_loc_t *func_loc = __csan_get_func_source_loc(func_id);
   fprintf(err_io,
-          "Cilksan Warning: Call to standard library or intrinsic function not "
+          "Cilksan Warning: Call to function '%s' not "
           "handled in %s (%s:%d:%d)\n",
+          (func_loc->name ? func_loc->name : "<no function name>"),
           (src_loc->name ? src_loc->name : "<no function name>"),
           (src_loc->filename ? src_loc->filename : "<no file name>"),
           src_loc->line_number, src_loc->column_number);
@@ -122,7 +124,6 @@ generic_masked_load_store(const csi_id_t call_id, unsigned MAAP_count,
                 "Mismatch between vector size and num-elements parameter.");
   static_assert(sizeof(VEC_T) == sizeof(EL_T) * NUM_ELS,
                 "Vector type has unexpected size.");
-  // printf("mask (size %d) = %x\n", NUM_ELS, *mask);
 
   START_HOOK(call_id);
 
@@ -258,7 +259,7 @@ CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
                                        const csi_id_t func_id,
                                        unsigned MAAP_count,
                                        const call_prop_t prop, void *sp) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -279,7 +280,7 @@ CILKSAN_API void __csan_llvm_prefetch_p0i8(const csi_id_t call_id,
                                            const call_prop_t prop, void *addr,
                                            int32_t rw, int32_t locality,
                                            int32_t cache_ty) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -307,7 +308,7 @@ CILKSAN_API void __csan_llvm_stackrestore(const csi_id_t call_id,
 CILKSAN_API void __csan_llvm_trap(const csi_id_t call_id,
                                   const csi_id_t func_id, unsigned MAAP_count,
                                   const call_prop_t prop) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -321,7 +322,7 @@ CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
                                       const csi_id_t func_id,
                                       unsigned MAAP_count,
                                       const call_prop_t prop, va_list ap) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -334,7 +335,7 @@ CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
 CILKSAN_API void __csan_llvm_va_end(const csi_id_t call_id,
                                     const csi_id_t func_id, unsigned MAAP_count,
                                     const call_prop_t prop, va_list ap) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -349,7 +350,7 @@ CILKSAN_API void __csan_llvm_va_copy(const csi_id_t call_id,
                                      unsigned MAAP_count,
                                      const call_prop_t prop, va_list dst,
                                      va_list src) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -411,7 +412,7 @@ CILKSAN_API void
 __csan___cxa_atexit(const csi_id_t call_id, const csi_id_t func_id,
                     unsigned MAAP_count, const call_prop_t prop, int result,
                     void (*func)(void *), void *arg, void *dso_handle) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -733,7 +734,7 @@ CILKSAN_API void __csan_ceill(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_clearerr(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1032,7 +1033,7 @@ CILKSAN_API void __csan_fabsl(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_fclose(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1083,7 +1084,7 @@ CILKSAN_API void __csan_fdopen(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_feof(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1098,7 +1099,7 @@ CILKSAN_API void __csan_feof(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ferror(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1113,7 +1114,7 @@ CILKSAN_API void __csan_ferror(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_fflush(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1147,7 +1148,7 @@ CILKSAN_API void __csan_fflush_unlocked(const csi_id_t call_id,
 CILKSAN_API void __csan_fgetc(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1248,7 +1249,7 @@ CILKSAN_API void __csan_fgets_unlocked(const csi_id_t call_id,
 CILKSAN_API void __csan_fileno(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1433,7 +1434,7 @@ CILKSAN_API void __csan_fprintf(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_fputc(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, int ch, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1641,7 +1642,7 @@ CILKSAN_API void __csan_fseek(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, FILE *stream, long offset,
                               int origin) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1657,7 +1658,7 @@ CILKSAN_API void __csan_fseeko(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream, off_t offset,
                                int origin) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1674,7 +1675,7 @@ CILKSAN_API void __csan_fseeko64(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  int result, FILE *stream, off64_t offset,
                                  int origin) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1730,7 +1731,7 @@ CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ftell(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               long result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1745,7 +1746,7 @@ CILKSAN_API void __csan_ftell(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ftello(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                off_t result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1761,7 +1762,7 @@ CILKSAN_API void __csan_ftello(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ftello64(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  off64_t result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -1829,7 +1830,7 @@ CILKSAN_API void __csan_fwrite_unlocked(const csi_id_t call_id,
 CILKSAN_API void __csan_getc(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -2284,7 +2285,7 @@ CILKSAN_API void __csan_open64(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_pclose(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -2397,7 +2398,7 @@ CILKSAN_API void __csan_printf(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_putc(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              int result, int ch, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -2626,7 +2627,7 @@ CILKSAN_API void __csan_rename(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_rewind(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())
@@ -3966,7 +3967,7 @@ CILKSAN_API void __csan_truncl(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_ungetc(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                int result, int ch, FILE *stream) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSAN_INITIALIZED)
     return;
 
   if (!should_check())

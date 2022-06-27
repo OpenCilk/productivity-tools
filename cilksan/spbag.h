@@ -10,6 +10,7 @@
 #include <inttypes.h>
 
 #include "debug_util.h"
+#include "disjointset.h"
 #include "race_info.h"
 
 #define UNINIT_STACK_PTR ((uintptr_t)0LL)
@@ -24,12 +25,15 @@ static_assert(8 * sizeof(version_t) < 64,
 
 class SPBagInterface {
 protected:
+  using DS_t = DisjointSet_t<call_stack_t>;
+
   // Since the bags require 64-bits of storage at least anyway, allocate a
   // 64-bit payload in the base class.  Use the topmost bit to record whether
   // the bag is an S-bag or a P-bag, so that the bag type can be determined
   // without an indirect function call.
   static constexpr unsigned BAG_TYPE_SHIFT = 63;
   static constexpr uintptr_t BAG_TYPE_MASK = (1UL << BAG_TYPE_SHIFT);
+  DS_t *_ds = nullptr;
   uintptr_t _payload;
 
   uintptr_t getAvailablePayload() const { return _payload & ~BAG_TYPE_MASK; }
@@ -42,7 +46,10 @@ public:
   // pure and must provide a definition.
   // http://stackoverflow.com/questions/461203/when-to-use-virtual-destructors
   // <stackoverflow>/3336499/virtual-desctructor-on-pure-abstract-base-class
-  virtual ~SPBagInterface() {}
+  virtual ~SPBagInterface() {
+    if (_ds)
+      _ds->dec_ref_count();
+  }
 
   // Implement these methods directly on the base class, so that checking
   // whether an arbitrary SPBagInterface object is an S-bag or a P-bag does not
@@ -56,27 +63,43 @@ public:
                                              << BAG_TYPE_SHIFT;
   }
 
+  void set_ds(DS_t *ds) {
+    if (ds == _ds)
+      return;
+
+    ds->inc_ref_count();
+    if (_ds)
+      _ds->dec_ref_count();
+    _ds = ds;
+  }
+  DS_t *get_ds() const { return _ds; }
+
   virtual uint64_t get_func_id() const = 0;
   virtual version_t get_version() const = 0;
   virtual bool inc_version() = 0;
-  virtual const call_stack_t *get_call_stack() const = 0;
-  virtual void update_sibling(SPBagInterface *) = 0;
+
+  void combine(SPBagInterface *that) {
+    if (!that->get_ds())
+      return;
+
+    // cilksan_assert(that->_ds && "No disjointset node with that bag.");
+    if (!_ds) {
+      that->get_ds()->inc_ref_count();
+      _ds = that->get_ds();
+      return;
+    }
+
+    cilksan_assert(_ds && "No disjointset node with this bag.");
+    set_ds(_ds->combine(that->get_ds()));
+  }
 };
+
+static_assert(alignof(SPBagInterface) >= 8, "Bad alignment for SPBagInterface.");
 
 class SBag_t final : public SPBagInterface {
 private:
-  // Use the base-class _payload to store the function ID and the version.  The
-  // low 32 bits of the _payload are used to store the version, so that the
-  // version can be updated with simple arithmetic on 32-bit registers.
-  // static constexpr unsigned FUNC_ID_SHIFT = 16;
-  // static constexpr uintptr_t VERSION_MASK = ((1UL << FUNC_ID_SHIFT) - 1);
-  // static constexpr uintptr_t FUNC_ID_MASK = ~VERSION_MASK & ~BAG_TYPE_MASK;
   static constexpr unsigned VERSION_END_SHIFT = 8 * sizeof(version_t);
   static constexpr uintptr_t VERSION_MASK = ((1UL << VERSION_END_SHIFT) - 1);
-
-  // The call stack of the function instantiation that corresponds with this
-  // S-bag.  The call stack is used to report the first endpoint of a race.
-  call_stack_t _call_stack;
 
 #if CILKSAN_DEBUG
   uint64_t func_id;
@@ -85,8 +108,8 @@ private:
   SBag_t() = delete; // disable default constructor
 
 public:
-  SBag_t(uint64_t id, const call_stack_t &call_stack)
-      : SPBagInterface(BagType_t::SBag), _call_stack(call_stack)
+  SBag_t(uint64_t id)
+      : SPBagInterface(BagType_t::SBag)
 #if CILKSAN_DEBUG
         ,
         func_id(id)
@@ -108,7 +131,6 @@ public:
   bool is_PBag() const { return false; }
 
   uint64_t get_func_id() const override {
-    // return static_cast<uint64_t>(getAvailablePayload()) >> FUNC_ID_SHIFT;
 #if CILKSAN_DEBUG
     return func_id;
 #else
@@ -120,20 +142,17 @@ public:
     return static_cast<uint64_t>(getAvailablePayload()) & VERSION_MASK;
   }
   bool inc_version() override {
-    // uint16_t new_version =
-    //     static_cast<uint16_t>(getAvailablePayload() & VERSION_MASK) + 1;
     version_t new_version =
         static_cast<version_t>(getAvailablePayload() & VERSION_MASK) + 1;
     _payload = (_payload & ~VERSION_MASK) | new_version;
     return (0 != new_version);
   }
 
-  const call_stack_t *get_call_stack() const override {
-    return &_call_stack;
-  }
-
-  void update_sibling(SPBagInterface *) override {
-    cilksan_assert(0 && "update_sibling called from SBag_t");
+  void combine(SPBagInterface *that) {
+    DS_t *old_ds = _ds;
+    SPBagInterface::combine(that);
+    if (_ds != old_ds)
+      _ds->set_sbag(this);
   }
 
   // Simple free-list allocator to conserve space and time in managing
@@ -175,59 +194,38 @@ static_assert(sizeof(SBag_t) >= sizeof(SBag_t::FreeNode_t),
               "Node structure in SBag free list must be as large as SBag.");
 
 class PBag_t final : public SPBagInterface {
-private:
-  // Use the base-class _payload to store the pointer to the sibling SBag: the
-  // SBag that corresponds to the function instance that holds this PBag.
-
-  PBag_t() = delete; // disable default constructor
-
-  // Helper method to get the pointer to the sibling SBag..
-  SPBagInterface *getSib() const {
-    return reinterpret_cast<SPBagInterface *>(getAvailablePayload());
-  }
-
 public:
-  PBag_t(SPBagInterface *sib) : SPBagInterface(BagType_t::PBag) {
+  PBag_t() : SPBagInterface(BagType_t::PBag) {
     WHEN_CILKSAN_DEBUG(debug_count++;);
-    _payload |= reinterpret_cast<uintptr_t>(sib);
   }
 
 #if CILKSAN_DEBUG
   static long debug_count;
   ~PBag_t() override {
     debug_count--;
-    update_sibling(nullptr);
   }
 #endif
 
   bool is_SBag() const { return false; }
   bool is_PBag() const { return true; }
 
-  uint64_t get_func_id() const override {
-#if CILKSAN_DEBUG
-    return getSib()->get_func_id();
-#else
-    return 0;
-#endif
-  }
+  uint64_t get_func_id() const override { return 0; }
 
   // These methods should never be invoked on a P-bag.
   version_t get_version() const override {
-    cilksan_assert(0 && "Called get_version on a Pbag");
-    return getSib()->get_version();
+    cilksan_assert(false && "Called get_version on a Pbag");
+    return 0;
   }
   bool inc_version() override {
-    cilksan_assert(0 && "Called inc_version on a Pbag");
-    return getSib()->inc_version();
-  }
-  const call_stack_t *get_call_stack() const override {
-    cilksan_assert(0 && "Called get_call_stack on a Pbag");
-    return getSib()->get_call_stack();
+    cilksan_assert(false && "Called inc_version on a Pbag");
+    return false;
   }
 
-  void update_sibling(SPBagInterface *new_sib) override {
-    _payload =
-        (_payload & BAG_TYPE_MASK) | reinterpret_cast<uintptr_t>(new_sib);
+  void combine(SPBagInterface *that) {
+    DS_t *old_ds = _ds;
+    SPBagInterface::combine(that);
+    if (_ds != old_ds)
+      _ds->set_pbag(this);
   }
 
   // Simple free-list allocator to conserve space and time in managing
