@@ -98,7 +98,7 @@ static CilkscaleImpl_t *tool = create_tool();
                     : ((tool->outf.is_open()) ? (tool->outf) : (tool->outs)))
 #endif
 
-static bool TOOL_INITIALIZED = false;
+bool CILKSCALE_INITIALIZED = false;
 
 ///////////////////////////////////////////////////////////////////////////
 // Utilities for printing analysis results
@@ -131,7 +131,7 @@ static void print_results(Out &OS, const char *tag, cilk_time_t work,
 // Emit the results from the overall program execution to the proper output
 // stream.
 static void print_analysis(void) {
-  assert(TOOL_INITIALIZED);
+  assert(CILKSCALE_INITIALIZED);
   shadow_stack_frame_t &bottom = STACK.peek_bot();
 
   assert(frame_type::NONE != bottom.type);
@@ -227,7 +227,7 @@ static void destroy_tool(void) {
     tool = nullptr;
   }
 
-  TOOL_INITIALIZED = false;
+  CILKSCALE_INITIALIZED = false;
 }
 
 CILKTOOL_API void __csi_init() {
@@ -244,7 +244,7 @@ CILKTOOL_API void __csi_init() {
   ensure_serial_tool();
 #endif
 
-  TOOL_INITIALIZED = true;
+  CILKSCALE_INITIALIZED = true;
 }
 
 CILKTOOL_API void __csi_unit_init(const char *const file_name,
@@ -254,7 +254,7 @@ CILKTOOL_API void __csi_unit_init(const char *const file_name,
 
 CILKTOOL_API
 void __csi_bb_entry(const csi_id_t bb_id, const bb_prop_t prop) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSCALE_INITIALIZED)
     return;
 
   shadow_stack_t &stack = STACK;
@@ -270,7 +270,7 @@ void __csi_bb_exit(const csi_id_t bb_id, const bb_prop_t prop) { return; }
 
 CILKTOOL_API
 void __csi_func_entry(const csi_id_t func_id, const func_prop_t prop) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSCALE_INITIALIZED)
     return;
   if (!prop.may_spawn)
     return;
@@ -313,7 +313,7 @@ void __csi_func_entry(const csi_id_t func_id, const func_prop_t prop) {
 CILKTOOL_API
 void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
                      const func_exit_prop_t prop) {
-  if (!TOOL_INITIALIZED)
+  if (!CILKSCALE_INITIALIZED)
     return;
   if (!prop.may_spawn)
     return;
