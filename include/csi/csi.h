@@ -299,45 +299,45 @@ typedef struct {
 // Front-end data (FED) table accessors.
 // Front-end data (FED) table accessors.  All such accessors should look like
 // accesses to constant data.
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_func_source_loc(const csi_id_t func_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_func_exit_source_loc(const csi_id_t func_exit_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_loop_source_loc(const csi_id_t loop_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_loop_exit_source_loc(const csi_id_t loop_exit_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_bb_source_loc(const csi_id_t bb_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_callsite_source_loc(const csi_id_t call_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_load_source_loc(const csi_id_t load_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_store_source_loc(const csi_id_t store_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_detach_source_loc(const csi_id_t detach_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_task_source_loc(const csi_id_t task_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_task_exit_source_loc(const csi_id_t task_exit_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *
 __csi_get_detach_continue_source_loc(const csi_id_t detach_continue_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_sync_source_loc(const csi_id_t sync_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_alloca_source_loc(const csi_id_t alloca_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_allocfn_source_loc(const csi_id_t allocfn_id);
-__attribute__((const))
+__attribute__((pure))
 const source_loc_t *__csi_get_free_source_loc(const csi_id_t free_id);
-__attribute__((const))
+__attribute__((pure))
 const sizeinfo_t *__csi_get_bb_sizeinfo(const csi_id_t bb_id);
 
-__attribute__((const))
+__attribute__((pure))
 const char *__csan_get_allocfn_str(const allocfn_prop_t prop);
-__attribute__((const))
+__attribute__((pure))
 const char *__csan_get_free_str(const free_prop_t prop);
 
 EXTERN_C_END
