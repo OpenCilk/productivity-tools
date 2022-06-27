@@ -81,6 +81,9 @@ if (CILKTOOLS_STANDALONE_BUILD)
   endif()
   set(LLVM_LIT_ARGS "${LIT_ARGS_DEFAULT}" CACHE STRING "Default options for lit")
   set(LLVM_LIT_OUTPUT_DIR "${CILKTOOLS_EXEC_OUTPUT_DIR}")
+
+  # Define llvm-link path
+  set(LLVM_LINK_PATH "${LLVM_TOOLS_BINARY_DIR}/llvm-link")
 endif()
 
 construct_cilktools_default_triple()
@@ -210,7 +213,6 @@ append_string_if(CILKTOOLS_HAS_STD_CXX14_FLAG -std=c++14 CMAKE_CXX_FLAGS)
 
 # Provide some common commmandline flags for Sanitizer runtimes.
 append_list_if(CILKTOOLS_HAS_FPIC_FLAG -fPIC SANITIZER_COMMON_CFLAGS)
-append_list_if(CILKTOOLS_HAS_FNO_BUILTIN_FLAG -fno-builtin SANITIZER_COMMON_CFLAGS)
 append_list_if(CILKTOOLS_HAS_FNO_EXCEPTIONS_FLAG -fno-exceptions SANITIZER_COMMON_CFLAGS)
 if(NOT CILKTOOLS_DEBUG AND NOT APPLE)
   append_list_if(CILKTOOLS_HAS_FOMIT_FRAME_POINTER_FLAG -fomit-frame-pointer SANITIZER_COMMON_CFLAGS)

@@ -374,6 +374,120 @@ function(add_cilktools_runtime name type)
   endif()
 endfunction()
 
+# Adds bitcode files for a list of architectures and operating systems
+# and puts it in the proper directory in the build and install trees.
+# add_cilktools_bitcode(<name>
+#                     ARCHS <architectures>
+#                     OS <os list>
+#                     SOURCES <source files>
+#                     CFLAGS <compile flags>
+#                     DEFS <compile definitions>
+#                     PARENT_TARGET <convenience parent target>
+#                     ADDITIONAL_HEADERS <header files>)
+function(add_cilktools_bitcode name)
+  cmake_parse_arguments(LIB
+    ""
+    "PARENT_TARGET"
+    "OS;ARCHS;SOURCES;CFLAGS;DEFS;DEPS;ADDITIONAL_HEADERS"
+    ${ARGN})
+  set(libnames)
+
+  # Add headers to LIB_SOURCES for IDEs. It doesn't make sense to do
+  # this for a runtime library that only consists of OBJECT libraries,
+  # so only add the headers when source files are present.
+  cilktools_process_sources(LIB_SOURCES
+    ${LIB_SOURCES}
+    ADDITIONAL_HEADERS
+    ${LIB_ADDITIONAL_HEADERS}
+    )
+
+  if(APPLE)
+    foreach(os ${LIB_OS})
+      list(LENGTH LIB_CFLAGS HAS_EXTRA_CFLAGS)
+      if(HAS_EXTRA_CFLAGS AND NOT "${os}" MATCHES "^(osx)$")
+        list(REMOVE_ITEM LIB_CFLAGS "-msse3")
+      endif()
+      set(libname "${name}_${os}")
+      list_intersect(LIB_ARCHS_${libname} DARWIN_${os}_ARCHS LIB_ARCHS)
+      if(LIB_ARCHS_${libname})
+        list(APPEND libnames ${libname})
+        set(extra_cflags_${libname} ${DARWIN_${os}_CFLAGS} ${LIB_CFLAGS})
+        set(output_name_${libname} ${libname}${CILKTOOLS_OS_SUFFIX})
+        set(sources_${libname} ${LIB_SOURCES})
+        get_cilktools_output_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} output_dir_${libname})
+        get_cilktools_install_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} install_dir_${libname})
+      endif()
+    endforeach()
+  else()
+    foreach(arch ${LIB_ARCHS})
+      if(NOT CAN_TARGET_${arch})
+        message(FATAL_ERROR "Architecture ${arch} can't be targeted")
+        return()
+      endif()
+      set(libname "${name}-${arch}")
+      set_output_name(output_name_${libname} ${name}${CILKTOOLS_OS_SUFFIX} ${arch})
+      set(sources_${libname} ${LIB_SOURCES})
+      format_object_libs(sources_${libname} ${arch} ${LIB_OBJECT_LIBS})
+      list(APPEND libnames ${libname})
+      set(extra_cflags_${libname} ${TARGET_${arch}_CFLAGS} ${LIB_CFLAGS})
+      get_cilktools_output_dir(${arch} output_dir_${libname})
+      get_cilktools_install_dir(${arch} install_dir_${libname})
+    endforeach()
+  endif()
+
+  if(NOT libnames)
+    return()
+  endif()
+
+  if(LIB_PARENT_TARGET)
+    # If the parent targets aren't created we should create them
+    if(NOT TARGET ${LIB_PARENT_TARGET})
+      add_custom_target(${LIB_PARENT_TARGET})
+      set_target_properties(${LIB_PARENT_TARGET} PROPERTIES
+        FOLDER "Cilktools Misc")
+    endif()
+  endif()
+
+  foreach(libname ${libnames})
+    # If you are using a multi-configuration generator we don't generate
+    # per-library install rules, so we fall back to the parent target COMPONENT
+    if(CMAKE_CONFIGURATION_TYPES AND LIB_PARENT_TARGET)
+      set(COMPONENT_OPTION COMPONENT ${LIB_PARENT_TARGET})
+    else()
+      set(COMPONENT_OPTION COMPONENT ${libname})
+    endif()
+    set(output_file_${libname} ${output_name_${libname}}.bc)
+    # Add compile command for bitcode file.
+    add_library(${libname}_compile OBJECT ${LIB_SOURCES})
+    target_include_directories(${libname}_compile PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+    set_target_compile_flags(${libname}_compile ${extra_cflags_${libname}})
+    target_compile_options(${libname}_compile PUBLIC "$<$<CONFIG:DEBUG>:${CILKTOOLS_DEBUG_OPTIONS}>")
+    target_compile_options(${libname}_compile PUBLIC "$<$<CONFIG:RELEASE>:${CILKTOOLS_RELEASE_OPTIONS}>")
+    set_property(TARGET ${libname}_compile APPEND PROPERTY
+      COMPILE_DEFINITIONS ${LIB_DEFS})
+    set(output_file_${libname} lib${output_name_${libname}}.bc)
+    add_custom_command(
+      OUTPUT ${output_dir_${libname}}/${output_file_${libname}}
+      COMMAND ${LLVM_LINK_PATH} -o ${output_dir_${libname}}/${output_file_${libname}} $<TARGET_OBJECTS:${libname}_compile>
+      DEPENDS ${libname}_compile $<TARGET_OBJECTS:${libname}_compile>
+      COMMENT "Building bitcode ${output_file_${libname}}"
+      VERBATIM COMMAND_EXPAND_LISTS)
+    add_custom_target(${libname} DEPENDS ${output_dir_${libname}}/${output_file_${libname}})
+    install(FILES ${output_dir_${libname}}/${output_file_${libname}}
+      DESTINATION ${install_dir_${libname}}
+      ${COMPONENT_OPTION})
+
+    set(parent_target_arg)
+    if(LIB_PARENT_TARGET)
+      set(parent_target_arg PARENT_TARGET ${LIB_PARENT_TARGET})
+    endif()
+    add_cilktools_install_targets(${libname} ${parent_target_arg})
+  endforeach()
+  if(LIB_PARENT_TARGET)
+    add_dependencies(${LIB_PARENT_TARGET} ${libnames})
+  endif()
+endfunction()
+
 # when cross compiling, CILKTOOLS_TEST_COMPILER_CFLAGS help
 # in compilation and linking of unittests.
 string(REPLACE " " ";" CILKTOOLS_UNITTEST_CFLAGS "${CILKTOOLS_TEST_COMPILER_CFLAGS}")

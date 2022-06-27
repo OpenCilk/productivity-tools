@@ -9,6 +9,10 @@ set(CILKSAN_SOURCES
   locking.cpp
   print_addr.cpp)
 
+set(CILKSAN_BITCODE_SOURCE
+  driver.cpp
+  libhooks.cpp)
+
 set(CILKSAN_RR_FILES
   rr_commands.py)
 
@@ -43,10 +47,23 @@ append_list_if(CILKTOOLS_HAS_CILK
 
 set(CILKSAN_DYNAMIC_LINK_FLAGS ${CILKSAN_COMMON_LINK_FLAGS})
 
+# Setup flags and defs for cilktool bitcode build
+set(CILKSAN_BITCODE_CFLAGS ${CILKSAN_CFLAGS} -emit-llvm)
+set(CILKSAN_BITCODE_DEFINITIONS ${CILKSAN_COMMON_DEFINITIONS}
+    "CILKSAN_VIS=")
+
 # Build Cilksan runtimes shipped with Clang.
 add_cilktools_component(cilksan)
 
 if (APPLE)
+  add_cilktools_bitcode(cilksan
+    OS ${CILKTOOL_SUPPORTED_OS}
+    ARCHS ${CILKSAN_SUPPORTED_ARCH}
+    SOURCES ${CILKSAN_BITCODE_SOURCE}
+    CFLAGS ${CILKSAN_BITCODE_CFLAGS}
+    DEFS ${CILKSAN_BITCODE_DEFINITIONS}
+    PARENT_TARGET cilksan)
+
   # Compile Cilksan sources into an object library
   add_cilktools_object_libraries(RTCilksan_dynamic
     OS ${CILKTOOL_SUPPORTED_OS}
@@ -102,6 +119,13 @@ else() # Not APPLE
     DEPS ${CILKSAN_OBJ_DEPS})
 
   foreach (arch ${CILKSAN_SUPPORTED_ARCH})
+    add_cilktools_bitcode(cilksan
+      ARCHS ${arch}
+      SOURCES ${CILKSAN_BITCODE_SOURCE}
+      CFLAGS ${CILKSAN_BITCODE_CFLAGS}
+      DEFS ${CILKSAN_BITCODE_DEFINITIONS}
+      PARENT_TARGET cilksan)
+
     add_cilktools_runtime(clang_rt.cilksan
       STATIC
       ARCHS ${arch}
