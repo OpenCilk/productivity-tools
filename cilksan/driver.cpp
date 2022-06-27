@@ -668,7 +668,7 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
     load_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this read.
-  if (prop.is_atomic) {
+  if (prop.is_atomic || prop.is_thread_local) {
     CilkSanImpl.do_atomic_read(load_id, (uintptr_t)addr, size, prop.alignment,
                                atomic_lock_id);
     return;
@@ -709,7 +709,7 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     load_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this read.
-  if (prop.is_atomic) {
+  if (prop.is_atomic || prop.is_thread_local) {
     CilkSanImpl.do_atomic_read(load_id, (uintptr_t)addr, size, prop.alignment,
                                atomic_lock_id);
     return;
@@ -750,7 +750,7 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
     store_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this write.
-  if (prop.is_atomic) {
+  if (prop.is_atomic || prop.is_thread_local) {
     CilkSanImpl.do_atomic_write(store_id, (uintptr_t)addr, size, prop.alignment,
                                 atomic_lock_id);
     return;
@@ -791,7 +791,7 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     store_id = static_cast<csi_id_t>(get_rr_time());
 
   // Record this write.
-  if (prop.is_atomic) {
+  if (prop.is_atomic || prop.is_thread_local) {
     CilkSanImpl.do_atomic_write(store_id, (uintptr_t)addr, size, prop.alignment,
                                 atomic_lock_id);
     return;

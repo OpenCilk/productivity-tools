@@ -1,5 +1,7 @@
 // RUN: %clangxx_cilksan -fopencilk -Og %s -o %t
 // RUN: %run %t 2>&1 | FileCheck %s
+// RUN: %clangxx_cilksan -fopencilk -Og %s -o %t -mllvm -cilksan-maap-checks=false
+// RUN: %run %t 2>&1 | FileCheck %s
 
 #include <cilk/cilk.h>
 #include <iostream>
