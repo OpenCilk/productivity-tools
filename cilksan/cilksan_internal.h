@@ -15,7 +15,7 @@
 #include "shadow_mem_allocator.h"
 #include "stack.h"
 
-extern bool TOOL_INITIALIZED;
+extern bool CILKSAN_INITIALIZED;
 
 // Forward declarations
 class SimpleShadowMem;
@@ -23,16 +23,23 @@ class SimpleShadowMem;
 // Top-level class implementing the tool.
 class CilkSanImpl_t {
 public:
-  CilkSanImpl_t() : color_report(ColorizeReports()) { TOOL_INITIALIZED = true; }
+  CilkSanImpl_t() : color_report(ColorizeReports()) {
+    CILKSAN_INITIALIZED = true;
+  }
   ~CilkSanImpl_t();
 
   MALineAllocator &getMALineAllocator(unsigned Idx) {
     return MAAlloc[Idx];
   }
 
-  using DJSAllocator = DisjointSet_t<SPBagInterface *>::DJSAllocator;
-  DJSAllocator &getDJSAllocator() {
-    return DJSAlloc;
+  using DSAllocator = DisjointSet_t<call_stack_t>::DSAllocator;
+  DSAllocator &getDSAllocator() {
+    return DSAlloc;
+  }
+
+  using DSList_t = DisjointSet_t<call_stack_t>::List_t;
+  DSList_t &getDSList() {
+    return DSList;
   }
 
   // Initialization
@@ -272,7 +279,10 @@ private:
   MALineAllocator MAAlloc[3];
 
   // Allocator for disjoint sets
-  DJSAllocator DJSAlloc;
+  DSAllocator DSAlloc;
+
+  // Helper list for disjoint sets
+  DSList_t DSList;
 
   // A map keeping track of races found, keyed by the larger instruction address
   // involved in the race.  Races that have same instructions that made the same

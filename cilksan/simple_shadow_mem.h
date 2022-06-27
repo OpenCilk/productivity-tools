@@ -172,10 +172,11 @@ private:
 
   struct MALineMethods {
     __attribute__((always_inline)) static MemoryAccess_t *
-    allocate(size_t size) {
+    allocate(size_t size) __attribute__((malloc)) {
       return MAAlloc.allocate(size);
     }
-    __attribute__((always_inline)) static bool deallocate(MemoryAccess_t *Ptr) {
+    __attribute__((always_inline)) static bool
+    deallocate(__attribute__((noescape)) MemoryAccess_t *Ptr) {
       return MAAlloc.deallocate(Ptr);
     }
     __attribute__((always_inline)) static bool
@@ -188,12 +189,14 @@ private:
   };
 
   struct MASetFn {
-    DisjointSet_t<SPBagInterface *> *func;
+    // DisjointSet_t<SPBagInterface *> *func;
+    DisjointSet_t<call_stack_t> *func;
+    version_t version;
     csi_id_t acc_id;
     MAType_t type;
 
     __attribute__((always_inline)) void operator()(MemoryAccess_t &MA) const {
-      MA.set(func, acc_id, type);
+      MA.set(func, version, acc_id, type);
     }
     __attribute__((always_inline)) void checkValid() const {
       cilksan_assert(func && "Invalid MASetFn");
@@ -376,8 +379,8 @@ private:
 
     // Set all entries in this line covered by Accessed to be the LineData_t
     // formed by LineDataSetFn.  The func parameter must be valid.
-    __attribute__((always_inline)) void
-    set(Chunk_t &Accessed, LineDataSetFn SetFn) {
+    __attribute__((always_inline)) void set(Chunk_t &Accessed,
+                                            LineDataSetFn SetFn) {
       SetFn.checkValid();
       // Get the grainsize of the access.
       unsigned AccessedLgGrainsize = Accessed.getLgGrainsize();
@@ -677,6 +680,7 @@ private:
     __attribute__((always_inline))
     bool setOccupiedFast(uintptr_t addr, size_t mem_size,
                          Vector_t<uintptr_t> &TouchedWords) {
+      return true;
       bool foundUnoccupied = false;
       uint64_t mask = (1UL << mem_size) - 1;
       mask = (uint64_t)mask << (unsigned)occupancyWordStartBit(addr);
@@ -695,10 +699,12 @@ private:
   };
 
   struct LockerLineMethods {
-    __attribute__((always_inline)) static LockerList_t *allocate(size_t size) {
+    __attribute__((always_inline)) static LockerList_t *allocate(size_t size)
+        __attribute__((malloc)) {
       return new LockerList_t[size];
     }
-    __attribute__((always_inline)) static bool deallocate(LockerList_t *Ptr) {
+    __attribute__((always_inline)) static bool
+    deallocate(__attribute__((noescape)) LockerList_t *Ptr) {
       delete[] Ptr;
       return true;
     }
@@ -714,13 +720,16 @@ private:
     const LockSet_t &lockset;
     csi_id_t acc_id;
     MAType_t type;
-    FrameData_t *f;
+    const FrameData_t *f;
 
     __attribute__((always_inline)) void operator()(LockerList_t &LL) const {
       // Scan the existing lockers to remove redundant lockers
       bool redundant = false;
       Locker_t *locker = LL.getHead();
       Locker_t **prevPtr = &LL.getHead();
+      SBag_t *sbag = f->getSbagForAccess();
+      DS_t *ds = sbag->get_ds();
+      version_t version = sbag->get_version();
       while (locker) {
         IntersectionResult_t result =
             LockSet_t::intersect(locker->getLockSet(), lockset);
@@ -749,8 +758,8 @@ private:
         locker = locker->getNext();
       }
       if (!redundant) {
-        Locker_t *newLocker = new Locker_t(
-            MemoryAccess_t(f->getSbagForAccess(), acc_id, type), lockset);
+        Locker_t *newLocker =
+            new Locker_t(MemoryAccess_t(ds, version, acc_id, type), lockset);
         LL.insert(newLocker);
       }
     }
@@ -838,6 +847,12 @@ private:
       return 5;
     // case 64:
     //   return 6;
+    // case 128:
+    //   return 7;
+    // case 256:
+    //   return 8;
+    // case 512:
+    //   return 9;
     default:
       return __builtin_ctzl(mem_size);
     }
@@ -1182,8 +1197,7 @@ public:
 
     // Insert DataType objects into all entries from Accessed until a new valid
     // DataType object is discovered.
-    __attribute__((always_inline)) void
-    insert(DataSetFn SetFn) {
+    __attribute__((always_inline)) void insert(DataSetFn SetFn) {
       // Copy the object at the previous entry.  In case this method changes the
       // object at this previous entry, this copy ensures that comparisons use
       // the previous object's value.
@@ -1302,8 +1316,8 @@ public:
   };
 
   // High-level method to set the occupancy of the shadow memory
-  __attribute__((always_inline)) bool setOccupied(uintptr_t addr,
-                                                  size_t mem_size) {
+  __attribute__((always_inline))
+  bool setOccupied(uintptr_t addr, size_t mem_size) {
     assert(AllocIdx != AllocMAAllocator &&
            "Called setOccupied on Alloc shadow memory");
 
@@ -1363,10 +1377,10 @@ public:
 
   // High-level method to set shadow of the specified chunk of memory to match
   // the MemoryAccess_t formed by (func, acc_id, type).
-  void set(uintptr_t addr, size_t size, DisjointSet_t<SPBagInterface *> *func,
-           csi_id_t acc_id, MAType_t type) {
+  void set(uintptr_t addr, size_t size, DisjointSet_t<call_stack_t> *func,
+           version_t version, csi_id_t acc_id, MAType_t type) {
     Update_iterator<Page_t> UI(*this, Chunk_t(addr, size));
-    UI.set(MASetFn({func, acc_id, type}));
+    UI.set(MASetFn({func, version, acc_id, type}));
   }
 
   // Get a query iterator for the specified chunk of memory.
@@ -1423,11 +1437,12 @@ private:
   }
 
   __attribute__((always_inline)) static bool
-  previousAccessInParallel(MemoryAccess_t *PrevAccess, FrameData_t *f) {
+  previousAccessInParallel(MemoryAccess_t *PrevAccess, const FrameData_t *f) {
     return MemoryAccess_t::previousAccessInParallel(PrevAccess, f);
   }
   __attribute__((always_inline)) static bool
-  previousAccessInParallel(const MemoryAccess_t *PrevAccess, FrameData_t *f) {
+  previousAccessInParallel(const MemoryAccess_t *PrevAccess,
+                           const FrameData_t *f) {
     return MemoryAccess_t::previousAccessInParallel(PrevAccess, f);
   }
 
@@ -1442,7 +1457,7 @@ private:
 
   // Logic to check for a data race with the given previous accesses.
   __attribute__((always_inline)) static bool
-  dataRaceWithPreviousAccesses(LockerList_t *PrevAccesses, FrameData_t *f,
+  dataRaceWithPreviousAccesses(LockerList_t *PrevAccesses, const FrameData_t *f,
                                const LockSet_t &LS) {
     Locker_t *locker = PrevAccesses->getHead();
     while (locker) {
@@ -1456,8 +1471,8 @@ private:
     return false;
   }
   __attribute__((always_inline)) static bool
-  dataRaceWithPreviousAccesses(const LockerList_t *PrevAccesses, FrameData_t *f,
-                               const LockSet_t &LS) {
+  dataRaceWithPreviousAccesses(const LockerList_t *PrevAccesses,
+                               const FrameData_t *f, const LockSet_t &LS) {
     return dataRaceWithPreviousAccesses(
         const_cast<LockerList_t *>(PrevAccesses), f, LS);
   }
@@ -1501,7 +1516,7 @@ public:
   template <typename QITy, bool prev_read, bool is_read>
   __attribute__((always_inline)) void
   check_race(QITy &QI, const csi_id_t acc_id, MAType_t type,
-             FrameData_t *f) const {
+             const FrameData_t *f) const {
     // Repeat as long as the Query_iterator has more memory locations to check.
     while (!QI.isEnd()) {
       // Find a previous access
@@ -1543,7 +1558,7 @@ public:
   __attribute__((always_inline)) void
   check_race_with_prev_read(const csi_id_t acc_id, MAType_t type,
                             uintptr_t addr, size_t mem_size,
-                            FrameData_t *f) const {
+                            const FrameData_t *f) const {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using QITy = RDict::Query_iterator<RDict::Page_t>;
     QITy QI = Reads.getQueryIterator(addr, mem_size);
@@ -1557,7 +1572,7 @@ public:
   __attribute__((always_inline)) void
   check_race_with_prev_write(const csi_id_t acc_id, MAType_t type,
                              uintptr_t addr, size_t mem_size,
-                             FrameData_t *f) const {
+                             const FrameData_t *f) const {
     using WDict = SimpleDictionary<WriteMAAllocator>;
     using QITy = WDict::Query_iterator<WDict::Page_t>;
     QITy QI = Writes.getQueryIterator(addr, mem_size);
@@ -1567,8 +1582,11 @@ public:
   // Core routine for updating the entries of a dictionary, using the given
   // Update_iterator UI.
   template <typename UITy, class MASetFn>
-  __attribute__((always_inline)) void update(UITy &UI, const csi_id_t acc_id,
-                                             MAType_t type, FrameData_t *f) {
+  __attribute__((always_inline)) void
+  update(UITy &UI, const csi_id_t acc_id, MAType_t type, const FrameData_t *f) {
+    SBag_t *sbag = f->getSbagForAccess();
+    DS_t *ds = sbag->get_ds();
+    version_t version = sbag->get_version();
     // Repeat as long as the Update_iterator has more memory locations to
     // update.
     while (!UI.isEnd()) {
@@ -1576,12 +1594,12 @@ public:
       MemoryAccess_t *PrevAccess = UI.get();
       if (!PrevAccess || !PrevAccess->isValid()) {
         // This is the first access to this location.  Record the memory access.
-        UI.insert(MASetFn({f->getSbagForAccess(), acc_id, type}));
+        UI.insert(MASetFn({ds, version, acc_id, type}));
       } else {
         // If the previous access was in series, update it.  Otherwise, get the
         // next location to check
         if (!previousAccessInParallel(PrevAccess, f)) {
-          UI.insert(MASetFn({f->getSbagForAccess(), acc_id, type}));
+          UI.insert(MASetFn({ds, version, acc_id, type}));
         } else {
           // Nothing to update; get the next location.
           UI.next();
@@ -1593,7 +1611,7 @@ public:
   // Instantiate update to update the read dictionary with a new read access.
   __attribute__((always_inline)) void
   update_with_read(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                   size_t mem_size, FrameData_t *f) {
+                   size_t mem_size, const FrameData_t *f) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using UITy = RDict::Update_iterator<RDict::Page_t>;
     UITy UI = Reads.getUpdateIterator(addr, mem_size);
@@ -1604,19 +1622,22 @@ public:
   // dictionary with a new write access.
   __attribute__((always_inline)) void
   check_and_update_write(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                         size_t mem_size, FrameData_t *f) {
+                         size_t mem_size, const FrameData_t *f) {
     // Create an Update_iterator for the new write access
     using WDict = SimpleDictionary<WriteMAAllocator>;
     using UITy = WDict::Update_iterator<WDict::Page_t>;
     UITy UI = Writes.getUpdateIterator(addr, mem_size);
 
+    SBag_t *sbag = f->getSbagForAccess();
+    DS_t *ds = sbag->get_ds();
+    version_t version = sbag->get_version();
     // Repeat as long as there are more memory locations to check and update.
     while (!UI.isEnd()) {
       // Find a previous access
       MemoryAccess_t *PrevAccess = UI.get();
       if (!PrevAccess || !PrevAccess->isValid()) {
         // This is the first access to this location.  Record the access.
-        UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+        UI.insert(WDict::MASetFn({ds, version, acc_id, type}));
       } else {
         // If the previous access was in parallel, we have a race.
         if (__builtin_expect(previousAccessInParallel(PrevAccess, f), false)) {
@@ -1631,7 +1652,7 @@ public:
           UI.next();
         } else {
           // Otherwise, the previous was in series, so update it
-          UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+          UI.insert(WDict::MASetFn({ds, version, acc_id, type}));
         }
       }
     }
@@ -1642,7 +1663,7 @@ public:
   // aligned memory accesses.
   __attribute__((always_inline)) void
   check_read_fast(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                  size_t mem_size, FrameData_t *f) {
+                  size_t mem_size, const FrameData_t *f) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using WDict = SimpleDictionary<WriteMAAllocator>;
     // Get the line storing the previous write to this location, if any.
@@ -1685,14 +1706,20 @@ public:
         read_line->incNumNonNullEls();
 
         // Update the read MemoryAccess_t
-        read_ma->set(f->getSbagForAccess(), acc_id, type);
+        SBag_t *sbag = f->getSbagForAccess();
+        DS_t *ds = sbag->get_ds();
+        version_t version = sbag->get_version();
+        read_ma->set(ds, version, acc_id, type);
       } else {
         // Otherwise, only insert the new read if it is in series with the
         // previous read.
         if (!previousAccessInParallel(read_ma, f)) {
           // This read access is in series with the previous access, so update
           // the shadow memory.
-          read_ma->set(f->getSbagForAccess(), acc_id, type);
+          SBag_t *sbag = f->getSbagForAccess();
+          DS_t *ds = sbag->get_ds();
+          version_t version = sbag->get_version();
+          read_ma->set(ds, version, acc_id, type);
         }
       }
     }
@@ -1719,7 +1746,7 @@ public:
   // aligned memory accesses.
   __attribute__((always_inline)) void
   check_write_fast(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                   size_t mem_size, FrameData_t *f) {
+                   size_t mem_size, const FrameData_t *f) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using WDict = SimpleDictionary<WriteMAAllocator>;
     // Get the line storing the previous read to this location, if any.
@@ -1763,7 +1790,10 @@ public:
         write_line->incNumNonNullEls();
 
         // Update the write MemoryAccess_t
-        write_ma->set(f->getSbagForAccess(), acc_id, type);
+        SBag_t *sbag = f->getSbagForAccess();
+        DS_t *ds = sbag->get_ds();
+        version_t version = sbag->get_version();
+        write_ma->set(ds, version, acc_id, type);
       } else {
         // Otherwise, check against the existing write.
         if (previousAccessInParallel(write_ma, f)) {
@@ -1775,7 +1805,10 @@ public:
         } else {
           // This write access is in series with the previous access, so update
           // the shadow memory.
-          write_ma->set(f->getSbagForAccess(), acc_id, type);
+          SBag_t *sbag = f->getSbagForAccess();
+          DS_t *ds = sbag->get_ds();
+          version_t version = sbag->get_version();
+          write_ma->set(ds, version, acc_id, type);
         }
       }
     }
@@ -1803,7 +1836,8 @@ public:
             bool is_read>
   __attribute__((always_inline)) void
   check_data_race(const DictTy &Dict, QITy &QI, const csi_id_t acc_id,
-                  MAType_t type, FrameData_t *f, const LockSet_t &LS) const {
+                  MAType_t type, const FrameData_t *f,
+                  const LockSet_t &LS) const {
     while (!QI.isEnd()) {
       // Find a previous access
       const MemoryAccess_t *PrevAccess = QI.get();
@@ -1858,10 +1892,9 @@ public:
     }
   }
 
-  __attribute__((always_inline)) void
-  check_data_race_with_prev_read(const csi_id_t acc_id, MAType_t type,
-                                 uintptr_t addr, size_t mem_size,
-                                 FrameData_t *f, const LockSet_t &LS) const {
+  __attribute__((always_inline)) void check_data_race_with_prev_read(
+      const csi_id_t acc_id, MAType_t type, uintptr_t addr, size_t mem_size,
+      const FrameData_t *f, const LockSet_t &LS) const {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using QITy = RDict::Query_iterator<RDict::Page_t>;
     using LQITy = RDict::Query_iterator<RDict::LockerPage_t>;
@@ -1872,10 +1905,9 @@ public:
   }
 
   template <bool is_read>
-  __attribute__((always_inline)) void
-  check_data_race_with_prev_write(const csi_id_t acc_id, MAType_t type,
-                                  uintptr_t addr, size_t mem_size,
-                                  FrameData_t *f, const LockSet_t &LS) const {
+  __attribute__((always_inline)) void check_data_race_with_prev_write(
+      const csi_id_t acc_id, MAType_t type, uintptr_t addr, size_t mem_size,
+      const FrameData_t *f, const LockSet_t &LS) const {
     using WDict = SimpleDictionary<WriteMAAllocator>;
     using QITy = WDict::Query_iterator<WDict::Page_t>;
     using LQITy = WDict::Query_iterator<WDict::LockerPage_t>;
@@ -1886,8 +1918,8 @@ public:
 
   template <typename UITy, class LockerSetFn>
   __attribute__((always_inline)) void
-  update_lockers(UITy &UI, const csi_id_t acc_id, MAType_t type, FrameData_t *f,
-                 const LockSet_t &LS) {
+  update_lockers(UITy &UI, const csi_id_t acc_id, MAType_t type,
+                 const FrameData_t *f, const LockSet_t &LS) {
     while (!UI.isEnd()) {
       UI.insert(LockerSetFn({LS, acc_id, type, f}));
     }
@@ -1895,7 +1927,7 @@ public:
 
   __attribute__((always_inline)) void
   update_lockers_with_read(const csi_id_t acc_id, MAType_t type, uintptr_t addr,
-                           size_t mem_size, FrameData_t *f,
+                           size_t mem_size, const FrameData_t *f,
                            const LockSet_t &LS) {
     using RDict = SimpleDictionary<ReadMAAllocator>;
     using UITy = RDict::Update_iterator<RDict::LockerPage_t>;
@@ -1906,11 +1938,15 @@ public:
   __attribute__((always_inline)) void
   check_data_race_and_update_write(const csi_id_t acc_id, MAType_t type,
                                    uintptr_t addr, size_t mem_size,
-                                   FrameData_t *f, const LockSet_t &LS) {
+                                   const FrameData_t *f, const LockSet_t &LS) {
     using WDict = SimpleDictionary<WriteMAAllocator>;
     using UITy = WDict::Update_iterator<WDict::Page_t>;
     using LUITy = WDict::Update_iterator<WDict::LockerPage_t>;
     UITy UI = Writes.getUpdateIterator(addr, mem_size);
+
+    SBag_t *sbag = f->getSbagForAccess();
+    DS_t *ds = sbag->get_ds();
+    version_t version = sbag->get_version();
 
     while (!UI.isEnd()) {
       // Find a previous access
@@ -1918,7 +1954,7 @@ public:
       if (!PrevAccess || !PrevAccess->isValid()) {
         // This is the first access to this location.
         uintptr_t StartAddr = UI.getAddress();
-        UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+        UI.insert(WDict::MASetFn({ds, version, acc_id, type}));
         uintptr_t EndAddr = UI.getAddress();
         cilksan_assert(EndAddr > StartAddr);
 
@@ -1959,7 +1995,7 @@ public:
         } else {
           // Otherwise, the previous was in series, so update it
           uintptr_t StartAddr = UI.getAddress();
-          UI.insert(WDict::MASetFn({f->getSbagForAccess(), acc_id, type}));
+          UI.insert(WDict::MASetFn({ds, version, acc_id, type}));
           uintptr_t EndAddr = UI.getAddress();
           cilksan_assert(EndAddr > StartAddr);
 
@@ -1979,18 +2015,22 @@ public:
 
   void record_alloc(size_t start, size_t size, FrameData_t *f,
                     csi_id_t alloca_id) {
-    Allocs.set(start, size, f->getSbagForAccess(), alloca_id, MAType_t::ALLOC);
+    SBag_t *sbag = f->getSbagForAccess();
+    DS_t *ds = sbag->get_ds();
+    version_t version = sbag->get_version();
+    Allocs.set(start, size, ds, version, alloca_id, MAType_t::ALLOC);
   }
 
   void record_free(size_t start, size_t size, FrameData_t *f, csi_id_t free_id,
                    MAType_t type) {
     Allocs.clear(start, size);
-    Writes.set(start, size, f->getSbagForAccess(), free_id, type);
+    SBag_t *sbag = f->getSbagForAccess();
+    DS_t *ds = sbag->get_ds();
+    version_t version = sbag->get_version();
+    Writes.set(start, size, ds, version, free_id, type);
   }
 
-  __attribute__((always_inline)) void clear_alloc(size_t start, size_t size) {
-    Allocs.clear(start, size);
-  }
+  void clear_alloc(size_t start, size_t size) { Allocs.clear(start, size); }
 };
 
 #endif // __SIMPLE_SHADOW_MEM__

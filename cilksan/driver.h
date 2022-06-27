@@ -11,7 +11,13 @@
 #include "locksets.h"
 #include "stack.h"
 
-#define CILKSAN_API extern "C" __attribute__((visibility("default")))
+#ifndef CILKSAN_VIS
+#define CILKSAN_VIS __attribute__((visibility("default")))
+#endif
+
+#ifndef CILKSAN_API
+#define CILKSAN_API extern "C" CILKSAN_VIS
+#endif
 // The CILKSAN_WEAK macro is used to mark dynamic interposers.  On Linux, these
 // symbols need to be marked weak, in order to avoid multiple-definition errors.
 // On Mac, these symbols must not be marked weak, or else the dynamic linker
@@ -53,23 +59,34 @@ extern allocfn_prop_t *allocfn_prop;
 extern uintptr_t *free_pc;
 
 // Flag to track whether Cilksan is initialized.
-extern bool TOOL_INITIALIZED;
+extern bool CILKSAN_INITIALIZED;
 
 // Flag to globally enable/disable instrumentation.
 extern bool instrumentation;
 
+///////////////////////////////////////////////////////////////////////////
+// Methods for enabling and disabling instrumentation
+
+static inline void enable_instrumentation() {
+  DBG_TRACE(DEBUG_BASIC, "Enable instrumentation.\n");
+  instrumentation = true;
+}
+
+static inline void disable_instrumentation() {
+  DBG_TRACE(DEBUG_BASIC, "Disable instrumentation.\n");
+  instrumentation = false;
+}
+
 // Reentrant flag for enabling/disabling instrumentation; 0 enables checking.
 extern int checking_disabled;
 
-__attribute__((always_inline))
-static inline bool should_check() {
+__attribute__((always_inline)) static inline bool should_check() {
   return (instrumentation && (checking_disabled == 0));
 }
 
 extern Stack_t<uint8_t> parallel_execution;
 
-__attribute__((always_inline))
-static inline bool is_execution_parallel() {
+__attribute__((always_inline)) static inline bool is_execution_parallel() {
   return parallel_execution.back();
 }
 
@@ -88,6 +105,16 @@ static inline bool checkMAAP(MAAP_t val, MAAP_t flag) {
 }
 
 // Designated lock ID for atomic operations
-extern const LockID_t atomic_lock_id;
+constexpr LockID_t atomic_lock_id = 0;
+
+// Range of stack used by the process
+// Defined in cilksan.cpp
+extern uintptr_t stack_low_addr;
+extern uintptr_t stack_high_addr;
+
+// Helper function to check if an address is in the stack.
+static inline bool is_on_stack(uintptr_t addr) {
+  return (addr <= stack_high_addr && addr >= stack_low_addr);
+}
 
 #endif // __DRIVER_H__

@@ -12,7 +12,7 @@
 
 // The memory-access-line allocator is dedicated to allocating specific
 // fixed-size arrays of MemoryAccess_t objects, e.g., MemoryAccess_t[1],
-// MemoryAccess_t[2], MemoryAccess_t[4], and MemoryAccess_t[8].  For each array
+// MemoryAccess_t[2], MemoryAccess_t[4], MemoryAccess_t[8], etc.  For each array
 // size, the allocator defines a slab type to be a system page of such objects.
 // A slab contains some metadata for the collection of objects, followed by
 // allocated storage for the objects themselves.  The metadata for a slab
@@ -79,9 +79,6 @@ template<unsigned Size, uint64_t NumLines>
 struct Slab_t {
   using SlabType = Slab_t<Size, NumLines>;
   using LineType = MemoryAccess_t[Size];
-  // static constexpr uint64_t NumLines =
-  //   (8 * (SYS_PAGE_SIZE - sizeof(SlabHead_t<SlabType, Size>)
-  //         - sizeof(SlabType *)) + 63) / ((8 * sizeof(LineType)) + 1);
   static constexpr int UsedMapSize = (NumLines + 63) / 64;
 
   // Slab header.
@@ -93,8 +90,7 @@ struct Slab_t {
   uint64_t UsedMap[UsedMapSize] = { 0 };
 
   // Line data structures.
-  // LineType Lines[NumLines];
-  char Lines[NumLines * sizeof(LineType)];
+  alignas(LineType) char Lines[NumLines * sizeof(LineType)];
 
   static_assert(sizeof(Lines) == sizeof(LineType) * NumLines,
                 "Unexpected sizeof(Lines)");
@@ -116,13 +112,12 @@ struct Slab_t {
 
   // Get a free line from the slab, marking that line as used in the process.
   // Returns nullptr if no free line is available.
-  LineType *getFreeLine() {
+  LineType *getFreeLine() __attribute__((malloc)) {
     for (int i = 0; i < UsedMapSize; ++i) {
       if (UsedMap[i] == static_cast<uint64_t>(-1))
         continue;
 
       // Get the free line.
-      // LineType *Line = &Lines[64 * i + __builtin_ctzl(UsedMap[i] + 1)];
       LineType *Line = reinterpret_cast<LineType *>(
           &Lines[(64 * i + __builtin_ctzl(UsedMap[i] + 1)) * sizeof(LineType)]);
 
@@ -521,7 +516,7 @@ public:
   }
 
   // Deallocate the line pointed to by Ptr.
-  bool deallocate(void *Ptr) {
+  bool deallocate(__attribute__((noescape)) void *Ptr) {
     // Get the Line size from the page containing Ptr.
     uintptr_t PagePtr = reinterpret_cast<uintptr_t>(Ptr) & SYS_PAGE_MASK;
     // For getting the size associated with a particular slab, there's no
@@ -593,7 +588,7 @@ public:
   // Get the storage for a line out of a slab in List.  Update List and Full
   // appropriately if the slab in List becomes full.
   template<typename LT, typename ST>
-  LT *getLine(ST *&List, ST *&Full) {
+  LT *getLine(ST *&List, ST *&Full) __attribute__((malloc)) {
     // TODO: Consider getting a Line from the fullest slab.  We still want this
     // process to be fast in the common case.
     ST *Slab = List;
@@ -618,37 +613,37 @@ public:
   }
 
   // Instantiations of getLine<> to get lines of specific sizes.
-  LineType1 *getMA1Line() {
+  LineType1 *getMA1Line() __attribute__((malloc)) {
     return getLine<LineType1, Slab1_t>(MA1Lines, FullMA1);
   }
-  LineType2 *getMA2Line() {
+  LineType2 *getMA2Line() __attribute__((malloc)) {
     return getLine<LineType2, Slab2_t>(MA2Lines, FullMA2);
   }
-  LineType4 *getMA4Line() {
+  LineType4 *getMA4Line() __attribute__((malloc)) {
     return getLine<LineType4, Slab4_t>(MA4Lines, FullMA4);
   }
-  LineType8 *getMA8Line() {
+  LineType8 *getMA8Line() __attribute__((malloc)) {
     return getLine<LineType8, Slab8_t>(MA8Lines, FullMA8);
   }
-  LineType16 *getMA16Line() {
+  LineType16 *getMA16Line() __attribute__((malloc)) {
     return getLine<LineType16, Slab16_t>(MA16Lines, FullMA16);
   }
-  LineType32 *getMA32Line() {
+  LineType32 *getMA32Line() __attribute__((malloc)) {
     return getLine<LineType32, Slab32_t>(MA32Lines, FullMA32);
   }
-  LineType64 *getMA64Line() {
+  LineType64 *getMA64Line() __attribute__((malloc)) {
     return getLine<LineType64, Slab64_t>(MA64Lines, FullMA64);
   }
-  LineType128 *getMA128Line() {
+  LineType128 *getMA128Line() __attribute__((malloc)) {
     return getLine<LineType128, Slab128_t>(MA128Lines, FullMA128);
   }
-  LineType256 *getMA256Line() {
+  LineType256 *getMA256Line() __attribute__((malloc)) {
     return getLine<LineType256, Slab256_t>(MA256Lines, FullMA256);
   }
-  LineType512 *getMA512Line() {
+  LineType512 *getMA512Line() __attribute__((malloc)) {
     return getLine<LineType512, Slab512_t>(MA512Lines, FullMA512);
   }
-  LineType1024 *getMA1024Line() {
+  LineType1024 *getMA1024Line() __attribute__((malloc)) {
     return getLine<LineType1024, Slab1024_t>(MA1024Lines, FullMA1024);
   }
   // LineType2048 *getMA2048Line() {
