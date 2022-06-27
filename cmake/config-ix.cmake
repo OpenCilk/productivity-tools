@@ -54,6 +54,7 @@ check_cxx_compiler_flag("-Werror -msse4.2"   CILKTOOLS_HAS_MSSE4_2_FLAG)
 check_cxx_compiler_flag(--sysroot=.          CILKTOOLS_HAS_SYSROOT_FLAG)
 check_cxx_compiler_flag("-Werror -mcrc"      CILKTOOLS_HAS_MCRC_FLAG)
 check_cxx_compiler_flag(-fno-partial-inlining CILKTOOLS_HAS_FNO_PARTIAL_INLINING_FLAG)
+check_cxx_compiler_flag(-fdebug-default-version=4 CILKTOOLS_HAS_FDEBUG_DEFAULT_VERSION_EQ_4_FLAG)
 # Check for -fopencilk flag
 check_cxx_compiler_flag(-fopencilk CILKTOOLS_HAS_CILK_FLAG)
 
