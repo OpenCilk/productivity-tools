@@ -65,7 +65,7 @@ public:
   out_reducer *outf_red = nullptr;
 #endif
 
-  std::basic_ostream<char, std::char_traits<char>> *out_view() {
+  std::basic_ostream<char> *out_view() {
 #if !SERIAL_TOOL
     // TODO: The compiler does not correctly bind the hyperobject
     // type to a reference, otherwise a reference return value would
@@ -138,7 +138,7 @@ static void print_analysis(void) {
   cilk_time_t span = bottom.contin_span;
   cilk_time_t bspan = bottom.contin_bspan;
 
-  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  std::basic_ostream<char> &output = *tool->out_view();
   ensure_header(output);
   print_results(output, "", work, span, bspan);
 }
@@ -200,8 +200,7 @@ CilkscaleImpl_t::~CilkscaleImpl_t() {
   tool->shadow_stack->stop.gettime();
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -296,8 +295,7 @@ void __csi_func_entry(const csi_id_t func_id, const func_prop_t prop) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -337,8 +335,7 @@ void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
           func_id);
 #endif
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
 
   assert(cilk_time_t::zero() == tool->shadow_stack->peek_bot().lchild_span);
 
@@ -369,8 +366,7 @@ void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -410,8 +406,7 @@ void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -478,8 +473,7 @@ void __csi_before_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -523,8 +517,7 @@ CILKTOOL_API wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
 #endif
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -564,7 +557,7 @@ operator<<(std::ostream &OS, const wsp_t &pt) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time = elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -585,7 +578,7 @@ operator<<(std::ofstream &OS, const wsp_t &pt) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time = elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
@@ -619,13 +612,12 @@ CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
 
   shadow_stack_frame_t &bottom = tool->shadow_stack->peek_bot();
 
-  duration_t strand_time =
-    elapsed_time(&(tool->shadow_stack->stop), &(tool->shadow_stack->start));
+  duration_t strand_time = tool->shadow_stack->elapsed_time();
   bottom.contin_work += strand_time;
   bottom.contin_span += strand_time;
   bottom.contin_bspan += strand_time;
 
-  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  std::basic_ostream<char> &output = *tool->out_view();
   ensure_header(output);
   print_results(output, tag, cilk_time_t(wsp.work), cilk_time_t(wsp.span),
                 cilk_time_t(wsp.bspan));

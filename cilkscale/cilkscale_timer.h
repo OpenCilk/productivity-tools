@@ -212,8 +212,8 @@ duration_t cilkscale_timer_t::burden =
 #endif // CSCALETIMER
       ;
 
-static duration_t elapsed_time(const cilkscale_timer_t *stop,
-                               const cilkscale_timer_t *start) {
+static inline duration_t elapsed_time(const cilkscale_timer_t *stop,
+                                      const cilkscale_timer_t *start) {
 #if CSCALETIMER == INST
   return 0;
 #elif CSCALETIMER == CLOCK

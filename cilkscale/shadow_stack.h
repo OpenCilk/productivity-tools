@@ -198,6 +198,10 @@ public:
   static void destruct(void *view) {
     static_cast<shadow_stack_t *>(view)->~shadow_stack_t();
   }
+
+  duration_t elapsed_time() {
+    return ::elapsed_time(&stop, &start);
+  }
 };
 
 typedef shadow_stack_t _Hyperobject(shadow_stack_t::identity,

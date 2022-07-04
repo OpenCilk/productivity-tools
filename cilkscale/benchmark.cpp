@@ -73,7 +73,7 @@ public:
   out_reducer *outf_red = nullptr;
 #endif
 
-  std::basic_ostream<char, std::char_traits<char>> *out_view() {
+  std::basic_ostream<char> *out_view() {
 #if !SERIAL_TOOL
     // TODO: The compiler does not correctly bind the hyperobject
     // type to a reference, otherwise a reference return value would
@@ -132,7 +132,7 @@ static void print_results(Out &OS, const char *tag, cilk_time_t time) {
 static void print_analysis(void) {
   assert(TOOL_INITIALIZED);
 
-  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  std::basic_ostream<char> &output = *tool->out_view();
   ensure_header(output);
   print_results(output, "", elapsed_time(&tool->stop, &tool->start));
 }
@@ -265,7 +265,7 @@ CILKTOOL_API wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
 }
 
 CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
-  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  std::basic_ostream<char> &output = *tool->out_view();
   ensure_header(output);
   print_results(output, tag, cilk_time_t(wsp.work));
 }
