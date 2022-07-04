@@ -27,8 +27,8 @@
 
 #include <cilk/cilk_api.h>
 #if !SERIAL_TOOL
-#include <cilk/reducer.h>
-#include <cilk/reducer_ostream.h>
+#include <cilk/ostream_reducer.h>
+using out_reducer = cilk::ostream_reducer<char>;
 #endif
 
 ///////////////////////////////////////////////////////////////////////////
@@ -39,32 +39,17 @@
 //
 // This reducer ensures that each stolen subcomputation gets a separate
 // cilkscale_timer object for probing the computation.
-class cilkscale_timer_monoid : public cilk::monoid_base<cilkscale_timer_t> {
-public:
-  static void reduce(cilkscale_timer_t *left, cilkscale_timer_t *right) {
-    // Nothing to do
-  }
-};
+static void timer_identity(void *view) {
+  new (view) cilkscale_timer_t();
+}
+static void timer_reduce(void *left, void *right) { }
+static void timer_destroy(void *view) {
+  static_cast<cilkscale_timer_t *>(view)->~cilkscale_timer_t();
+}
 
-class cilkscale_timer_reducer {
-private:
-  cilk::reducer<cilkscale_timer_monoid> m_imp;
-  inline const cilk::reducer<cilkscale_timer_monoid> *get_m_imp() const {
-    return &m_imp;
-  }
-  inline cilk::reducer<cilkscale_timer_monoid> *get_m_imp() {
-    return &m_imp;
-  }
-public:
-  cilkscale_timer_reducer() : m_imp() {}
-  cilkscale_timer_reducer(const cilkscale_timer_t &timer) : m_imp(timer) {}
-
-  cilkscale_timer_t &get_view() { return m_imp(); }
-  const cilkscale_timer_t &get_view() const { return m_imp(); }
-
-  void gettime() { m_imp().gettime(); }
-  duration_t readtime() { return m_imp().readtime(); }
-};
+using cilkscale_timer_reducer =
+  cilkscale_timer_t _Hyperobject(timer_identity, timer_reduce, timer_destroy);
+  
 #endif
 
 // Top-level class to manage the state of the global benchmarking tool.  This
@@ -85,8 +70,21 @@ public:
   std::ostream &outs = std::cout;
   std::ofstream outf;
 #if !SERIAL_TOOL
-  cilk::reducer<cilk::op_ostream> *outf_red = nullptr;
+  out_reducer *outf_red = nullptr;
 #endif
+
+  std::basic_ostream<char, std::char_traits<char>> *out_view() {
+#if !SERIAL_TOOL
+    // TODO: The compiler does not correctly bind the hyperobject
+    // type to a reference, otherwise a reference return value would
+    // be more conventional C++.
+    if (outf_red)
+      return &*outf_red;
+#endif
+    if (outf.is_open())
+      return &outf;
+    return &outs;
+  }
 
   BenchmarkImpl_t();
   ~BenchmarkImpl_t();
@@ -105,24 +103,6 @@ static BenchmarkImpl_t *create_tool(void) {
   return new BenchmarkImpl_t();
 }
 static BenchmarkImpl_t *tool = create_tool();
-
-// Macro to access the correct timer, based on the initialized state of the
-// tool.
-#if SERIAL_TOOL
-#define TIMER (tool->timer)
-#else
-#define TIMER (tool->timer.get_view())
-#endif
-
-// Macro to access the correct output stream, based on the initialized state of
-// the tool.
-#if SERIAL_TOOL
-#define OUTPUT ((tool->outf.is_open()) ? (tool->outf) : (tool->outs))
-#else
-#define OUTPUT                                                                 \
-  ((tool->outf_red) ? (**(tool->outf_red))                                     \
-                    : ((tool->outf.is_open()) ? (tool->outf) : (tool->outs)))
-#endif
 
 static bool TOOL_INITIALIZED = false;
 
@@ -152,12 +132,16 @@ static void print_results(Out &OS, const char *tag, cilk_time_t time) {
 static void print_analysis(void) {
   assert(TOOL_INITIALIZED);
 
-  ensure_header(OUTPUT);
-  print_results(OUTPUT, "", elapsed_time(&tool->stop, &tool->start));
+  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  ensure_header(output);
+  print_results(output, "", elapsed_time(&tool->stop, &tool->start));
 }
 
 ///////////////////////////////////////////////////////////////////////////
 // Startup and shutdown the tool
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 BenchmarkImpl_t::BenchmarkImpl_t() {
   const char *envstr = getenv("CILKSCALE_OUT");
@@ -165,8 +149,15 @@ BenchmarkImpl_t::BenchmarkImpl_t() {
     outf.open(envstr);
 
 #if !SERIAL_TOOL
-  outf_red =
-      new cilk::reducer<cilk::op_ostream>((outf.is_open() ? outf : outs));
+  __cilkrts_reducer_register
+    (&timer, sizeof timer, timer_identity, timer_reduce, timer_destroy);
+
+  outf_red = new out_reducer((outf.is_open() ? outf : outs));
+  __cilkrts_reducer_register
+    (outf_red, sizeof *outf_red,
+     &cilk::ostream_view<char, std::char_traits<char>>::identity,
+     &cilk::ostream_view<char, std::char_traits<char>>::reduce,
+     &cilk::ostream_view<char, std::char_traits<char>>::destruct);
 #endif
 
   start.gettime();
@@ -180,10 +171,14 @@ BenchmarkImpl_t::~BenchmarkImpl_t() {
     outf.close();
 
 #if !SERIAL_TOOL
+  __cilkrts_reducer_unregister(outf_red);
   delete outf_red;
   outf_red = nullptr;
+  __cilkrts_reducer_unregister(&timer);
 #endif
 }
+
+#pragma clang diagnostic pop
 
 ///////////////////////////////////////////////////////////////////////////
 // Hooks for operating the tool.
@@ -228,8 +223,8 @@ CILKTOOL_API wsp_t wsp_getworkspan() CILKSCALE_NOTHROW {
   if (!tool)
     return wsp_zero();
 
-  TIMER.gettime();
-  duration_t time_since_start = elapsed_time(&TIMER, &tool->start);
+  tool->timer.gettime();
+  duration_t time_since_start = elapsed_time(&tool->timer, &tool->start);
   wsp_t result = {cilk_time_t(time_since_start).get_raw_duration(), 0, 0};
 
   return result;
@@ -270,6 +265,7 @@ CILKTOOL_API wsp_t wsp_sub(wsp_t lhs, wsp_t rhs) CILKSCALE_NOTHROW {
 }
 
 CILKTOOL_API void wsp_dump(wsp_t wsp, const char *tag) {
-  ensure_header(OUTPUT);
-  print_results(OUTPUT, tag, cilk_time_t(wsp.work));
+  std::basic_ostream<char, std::char_traits<char>> &output = *tool->out_view();
+  ensure_header(output);
+  print_results(output, tag, cilk_time_t(wsp.work));
 }

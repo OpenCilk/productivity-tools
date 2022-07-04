@@ -8,8 +8,8 @@
 #define SERIAL_TOOL 1
 #endif
 
-#if !SERIAL_TOOL
-#include <cilk/reducer.h>
+#ifndef TRACE_CALLS
+#define TRACE_CALLS 0
 #endif
 
 #ifndef DEFAULT_STACK_SIZE
@@ -90,25 +90,13 @@ public:
     capacity = DEFAULT_STACK_SIZE;
     frames[0].init(type);
   }
+
   shadow_stack_t(const shadow_stack_t &copy) : capacity(copy.capacity),
                                                bot(copy.bot) {
     frames = new shadow_stack_frame_t[capacity];
     for (stack_index_t i = 0; i <= bot; ++i)
       frames[i] = copy.frames[i];
   }
-  shadow_stack_t(shadow_stack_t &&move)
-      : frames(std::move(move.frames)), capacity(std::move(move.capacity)),
-        bot(std::move(move.bot))
-  {}
-
-#if !SERIAL_TOOL
-  // Move-in constructor
-  shadow_stack_t(cilk::move_in_wrapper<shadow_stack_t> w) {
-    capacity = w.value().capacity;
-    frames = w.value().frames;
-    bot = w.value().bot;
-  }
-#endif
 
   ~shadow_stack_t() {
     if (frames)
@@ -157,12 +145,64 @@ public:
 
   /// Reducer support
 
-  void move_in(shadow_stack_t &&v) {
-    capacity = std::move(v.capacity);
-    frames = std::move(v.frames);
-    bot = std::move(v.bot);
-    v.frames = nullptr;
+  static void identity(void *view) {
+    new (view) shadow_stack_t(frame_type::SPAWNER);
+  }
+
+  static void reduce(void *left_view, void *right_view) {
+    shadow_stack_t *left = static_cast<shadow_stack_t *>(left_view);
+    shadow_stack_t *right = static_cast<shadow_stack_t *>(right_view);
+
+    shadow_stack_frame_t &l_bot = left->peek_bot();
+    shadow_stack_frame_t &r_bot = right->peek_bot();
+
+    assert(frame_type::SPAWNER == r_bot.type);
+    assert(0 == right->bot_index());
+
+#if TRACE_CALLS
+    fprintf(stderr, "left contin_work = %ld\nleft achild_work = %ld\n"
+            "right contin_work = %ld\nright achild_work = %ld\n",
+            l_bot.contin_work, l_bot.achild_work,
+            r_bot.contin_work, r_bot.achild_work);
+    fprintf(stderr, "left contin = %ld\nleft child = %ld\n"
+            "right contin = %ld\nright child = %ld\n",
+            l_bot.contin_span, l_bot.lchild_span,
+            r_bot.contin_span, r_bot.lchild_span);
+    fprintf(stderr, "left contin bspan = %ld\nleft child bspan = %ld\n"
+            "right contin bspan = %ld\nright child bspan = %ld\n",
+            l_bot.contin_bspan, l_bot.lchild_bspan,
+            r_bot.contin_bspan, r_bot.lchild_bspan);
+#endif
+
+    // Add the work variables from the right stack into the left.
+    l_bot.contin_work += r_bot.contin_work;
+    l_bot.achild_work += r_bot.achild_work;
+
+    // If the left stack has a longer path from the root to the end of its
+    // longest child, set this new span in keft.
+    if (l_bot.contin_span + r_bot.lchild_span > l_bot.lchild_span) {
+      l_bot.lchild_span = l_bot.contin_span + r_bot.lchild_span;
+    }
+    // Add the continuation span from the right stack into the left.
+    l_bot.contin_span += r_bot.contin_span;
+
+    // If the left stack has a longer path from the root to the end of its
+    // longest child, set this new span in keft.
+    if (l_bot.contin_bspan + r_bot.lchild_bspan > l_bot.lchild_bspan) {
+      l_bot.lchild_bspan = l_bot.contin_bspan + r_bot.lchild_bspan;
+    }
+    // Add the continuation span from the right stack into the left.
+    l_bot.contin_bspan += r_bot.contin_bspan;
+  }
+
+  static void destruct(void *view) {
+    static_cast<shadow_stack_t *>(view)->~shadow_stack_t();
   }
 };
+
+typedef shadow_stack_t _Hyperobject(shadow_stack_t::identity,
+                                    shadow_stack_t::reduce,
+                                    shadow_stack_t::destruct)
+  shadow_stack_reducer;
 
 #endif
