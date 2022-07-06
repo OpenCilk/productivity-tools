@@ -102,6 +102,7 @@ template <typename EL_T, int NUM_ELS> struct vec_t {
   static constexpr unsigned NUM_ELEMENTS = NUM_ELS;
   EL_T els[NUM_ELS];
 };
+using v2f64 = vec_t<double, 2>;
 using v4f64 = vec_t<double, 4>;
 using v4i32 = vec_t<int32_t, 4>;
 using v4i64 = vec_t<int64_t, 4>;
@@ -253,6 +254,80 @@ CILKSAN_API void __csan_llvm_masked_scatter_v8i32_v8p0i32(
     uint8_t *mask) {
   generic_masked_gather_scatter<v8i32, 8, uint8_t, false>(
       call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+template <typename VEC_T, unsigned NUM_ELS, typename IDX_T, bool is_load>
+__attribute__((always_inline)) static void
+generic_x86_gather_scatter(const csi_id_t call_id, unsigned MAAP_count,
+                           const call_prop_t prop, VEC_T *val, VEC_T *vbase,
+                           void *base, IDX_T *index, VEC_T *mask,
+                           int8_t scale) {
+  using EL_T = typename VEC_T::ELEMENT_T;
+  static_assert(NUM_ELS == VEC_T::NUM_ELEMENTS,
+                "Mismatch between vector size and num-elements parameter.");
+  static_assert(sizeof(VEC_T) == sizeof(EL_T) * NUM_ELS,
+                "Vector type has unexpected size.");
+  static_assert(
+      NUM_ELS <= IDX_T::NUM_ELEMENTS,
+      "Mismatch between index-vector size and num-elements parameter.");
+
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+
+  // Compute the addresses accessed.
+  vec_t<uintptr_t, NUM_ELS> addrs;
+  for (unsigned i = 0; i < NUM_ELS; ++i)
+    addrs.els[i] = (uintptr_t)base + vbase->els[i] + (index->els[i] * scale);
+
+  for (unsigned i = 0; i < NUM_ELS; ++i)
+    // Conditionality is specified by the most significant bit of each data
+    // element of the mask register.
+    if (static_cast<uint64_t>(mask->els[i]) &
+        ((uint64_t)(1) << (sizeof(EL_T) * 8 - 1))) {
+      if (is_load)
+        check_read_bytes(call_id, MAAP_t::ModRef, addrs.els[i], sizeof(EL_T));
+      else
+        check_write_bytes(call_id, MAAP_t::ModRef, addrs.els[i], sizeof(EL_T));
+    }
+}
+
+CILKSAN_API void
+__csan_llvm_x86_avx2_gather_d_d(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                v4i32 *result, v4i32 *vbase, void *base,
+                                v4i32 *index, v4i32 *mask, int8_t scale) {
+  generic_x86_gather_scatter<v4i32, 4, v4i32, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx2_gather_d_d_256(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8i32 *result, v8i32 *vbase, void *base,
+    v8i32 *index, v8i32 *mask, int8_t scale) {
+  generic_x86_gather_scatter<v8i32, 8, v8i32, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void
+__csan_llvm_x86_avx2_gather_d_pd(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 v2f64 *result, v2f64 *vbase, void *base,
+                                 v4i32 *index, v2f64 *mask, int8_t scale) {
+  generic_x86_gather_scatter<v2f64, 2, v4i32, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx2_gather_d_pd_256(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4f64 *result, v4f64 *vbase, void *base,
+    v4i32 *index, v4f64 *mask, int8_t scale) {
+  generic_x86_gather_scatter<v4f64, 4, v4i32, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
 }
 
 CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
