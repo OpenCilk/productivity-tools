@@ -46,7 +46,7 @@
 #include <random>
 #include <unistd.h>
 
-#include <cilk/reducer_opadd.h>
+#include <cilk/opadd_reducer.h>
 
 #ifdef WLS
 #include <cilk/cilk_api.h>
@@ -361,11 +361,11 @@ sum_t accum_spawn (num_vec_t const & vals) {
  */
 sum_t accum_reducer (num_vec_t const & vals) {
 
-  cilk::reducer_opadd<sum_t> sum(0);
+  cilk::opadd_reducer<sum_t> sum(0);
   cilk_for (auto i = 0; i < vals.size(); i++)
-    *sum += vals[i];
+    sum += vals[i];
   
-  return sum.get_value();
+  return sum;
   
 }
 

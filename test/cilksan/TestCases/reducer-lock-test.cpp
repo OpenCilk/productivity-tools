@@ -3,13 +3,13 @@
 
 #include <stdio.h>
 #include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
+#include <cilk/opadd_reducer.h>
 #include <chrono>
 #include <thread>
 #include <pthread.h>
 
 int main() {
-  cilk::reducer_opadd<int> sum;
+  cilk::opadd_reducer<int> sum;
   int rsum = 0;
   int lsum = 0;
   pthread_mutex_t mtex;
@@ -22,8 +22,8 @@ int main() {
     lsum += i;
     pthread_mutex_unlock(&mtex);
   }
-  printf("%p\n%p\n%p\n",(void*)&(sum.get_value()),(void*)&rsum,(void*)&lsum);
-  printf("%d\n%d\n%d\n",sum.get_value(),rsum,lsum);
+  printf("%p\n%p\n%p\n",(void*)&(sum),(void*)&rsum,(void*)&lsum);
+  printf("%d\n%d\n%d\n",sum,rsum,lsum);
 }
 
 // CHECK: Race detected on location [[RSUM:[0-9a-f]+]]

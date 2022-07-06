@@ -28,7 +28,7 @@
 #include <type_traits>
 #include <random>
 
-#include <cilk/reducer_opadd.h>
+#include <cilk/opadd_reducer.h>
 #include <cilk/cilk_api.h>
 
 #include <cilk/cilksan.h>
@@ -320,11 +320,11 @@ sum_t accum_spawn (num_t n) {
  */
 sum_t accum_reducer (num_t n) {
 
-  cilk::reducer_opadd<sum_t> sum(0);
+  cilk::opadd_reducer<sum_t> sum(0);
   cilk_for (num_t i = 0; i < n; i++)
-    *sum += i;
+    sum += i;
   
-  return sum.get_value();
+  return sum;
   
 }
 
