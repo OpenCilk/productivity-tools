@@ -52,6 +52,11 @@ using cilkscale_timer_reducer =
   
 #endif
 
+// Suppress diagnostic warning that reducer callbacks are not implemented for
+// structure members.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcilk-ignored"
+
 // Top-level class to manage the state of the global benchmarking tool.  This
 // class interface allows the tool to initialize data structures, such as a
 // std::ostream and a std::ofstream, only after the standard libraries they rely
@@ -89,6 +94,8 @@ public:
   BenchmarkImpl_t();
   ~BenchmarkImpl_t();
 };
+
+#pragma clang diagnostic pop
 
 // Top-level benchmarking tool.
 static BenchmarkImpl_t *create_tool(void) {
