@@ -148,9 +148,9 @@ If no ID is given, print information about the current race target."""
 
         print(len(races), "total race entries (2 per racing pair)")
         print("Race ID", race_to_examine)
+        print("Race on address", hex(addr_for_race(race_to_examine)))
         for racer in races[race_to_examine]:
             print("  Races with ID", racer)
-        print("Race on address", hex(addr_for_race(race_to_examine)))
 
         if view_current_race:
             print("Current race target:\n  racing pair",
