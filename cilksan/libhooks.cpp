@@ -2587,6 +2587,72 @@ CILKSAN_API void __csan_read(const csi_id_t call_id, const csi_id_t func_id,
   check_write_bytes(call_id, buf_MAAPVal, buf, result);
 }
 
+CILKSAN_API void __csan_readlink(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 ssize_t result, const char *__restrict__ pathname,
+                                 char *__restrict__ buf, size_t bufsiz) {
+  START_HOOK(call_id);
+
+  MAAP_t pathname_MAAPVal = MAAP_t::ModRef, buf_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    pathname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    buf_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, pathname_MAAPVal, pathname, strlen(pathname) + 1);
+  check_write_bytes(call_id, buf_MAAPVal, buf, result);
+}
+
+CILKSAN_API void __csan_readlinkat(const csi_id_t call_id,
+                                   const csi_id_t func_id, unsigned MAAP_count,
+                                   const call_prop_t prop, ssize_t result,
+                                   int dirfd, const char *__restrict__ pathname,
+                                   char *__restrict__ buf, size_t bufsiz) {
+  START_HOOK(call_id);
+
+  MAAP_t pathname_MAAPVal = MAAP_t::ModRef, buf_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    pathname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    buf_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, pathname_MAAPVal, pathname, strlen(pathname) + 1);
+  check_write_bytes(call_id, buf_MAAPVal, buf, result);
+}
+
+CILKSAN_API void __csan_realpath(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 char *result, const char *__restrict__ path,
+                                 char *__restrict__ resolved_path) {
+  START_HOOK(call_id);
+
+  MAAP_t path_MAAPVal = MAAP_t::ModRef, resolved_path_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    path_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    resolved_path_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+  (void)resolved_path_MAAPVal;
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, path_MAAPVal, path, strlen(path) + 1);
+  if (result != NULL)
+    check_write_bytes(call_id, MAAP_t::ModRef, result, strlen(result) + 1);
+}
+
 CILKSAN_API void __csan_remainderf(const csi_id_t call_id,
                                    const csi_id_t func_id, unsigned MAAP_count,
                                    const call_prop_t prop, float result,
@@ -4052,6 +4118,47 @@ CILKSAN_API void __csan_ungetc(const csi_id_t call_id, const csi_id_t func_id,
 
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
+}
+
+CILKSAN_API void __csan_unlink(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, const char *pathname) {
+  START_HOOK(call_id);
+
+  MAAP_t pathname_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    pathname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, pathname_MAAPVal, pathname, strlen(pathname) + 1);
+
+  // TODO: Simulate system-level modifications to unlink pathname from the
+  // filesystem.
+}
+
+CILKSAN_API void __csan_unlinkat(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 int result, int dirfd, const char *pathname,
+                                 int flags) {
+  START_HOOK(call_id);
+
+  MAAP_t pathname_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    pathname_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, pathname_MAAPVal, pathname, strlen(pathname) + 1);
+
+  // TODO: Simulate system-level modifications to unlink pathname from the
+  // filesystem.
 }
 
 CILKSAN_API void __csan_unsetenv(const csi_id_t call_id, const csi_id_t func_id,
