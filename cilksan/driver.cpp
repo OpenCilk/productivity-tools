@@ -1014,9 +1014,9 @@ CILKSAN_API void __csan_alloc_strdup(const csi_id_t allocfn_id,
   }
 
   // Record the allocation
-  malloc_sizes.insert((uintptr_t)(*result), size);
-  CilkSanImpl.record_alloc((size_t)(*result), size, 2 * allocfn_id + 1);
-  CilkSanImpl.clear_shadow_memory((size_t)(*result), size);
+  malloc_sizes.insert((uintptr_t)result, size);
+  CilkSanImpl.record_alloc((size_t)result, size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)result, size);
 
   // Check the write to result
   if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {
@@ -1070,9 +1070,9 @@ CILKSAN_API void __csan_alloc_strndup(const csi_id_t allocfn_id,
   }
 
   // Record the allocation
-  malloc_sizes.insert((uintptr_t)(*result), result_size);
-  CilkSanImpl.record_alloc((size_t)(*result), result_size, 2 * allocfn_id + 1);
-  CilkSanImpl.clear_shadow_memory((size_t)(*result), result_size);
+  malloc_sizes.insert((uintptr_t)result, result_size);
+  CilkSanImpl.record_alloc((size_t)result, result_size, 2 * allocfn_id + 1);
+  CilkSanImpl.clear_shadow_memory((size_t)result, result_size);
 
   // Check the write to result
   if (is_execution_parallel() && checkMAAP(str_MAAPVal, MAAP_t::Mod)) {

@@ -214,5 +214,19 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 
-// CHECK: Cilksan detected 13 distinct races.
+// CHECK: Race detected on location [[STR2]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: Spawn {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: * Free {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: Common calling context
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+
+// CHECK: Race detected on location [[STR3]]
+// CHECK-NEXT: * Write {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: Spawn {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: * Free {{[0-9a-f]+}} str_printf_test
+// CHECK-NEXT: Common calling context
+// CHECK-NEXT: Call {{[0-9a-f]+}} main
+
+// CHECK: Cilksan detected 15 distinct races.
 // CHECK-NEXT: Cilksan suppressed 0 duplicate race reports.
