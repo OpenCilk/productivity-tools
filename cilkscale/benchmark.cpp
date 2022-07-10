@@ -42,13 +42,12 @@ using out_reducer = cilk::ostream_reducer<char>;
 static void timer_identity(void *view) {
   new (view) cilkscale_timer_t();
 }
-static void timer_reduce(void *left, void *right) { }
-static void timer_destroy(void *view) {
-  static_cast<cilkscale_timer_t *>(view)->~cilkscale_timer_t();
+static void timer_reduce(void *left, void *right) {
+  static_cast<cilkscale_timer_t *>(right)->~cilkscale_timer_t();
 }
 
 using cilkscale_timer_reducer =
-  cilkscale_timer_t _Hyperobject(timer_identity, timer_reduce, timer_destroy);
+  cilkscale_timer_t _Hyperobject(timer_identity, timer_reduce);
   
 #endif
 
@@ -69,7 +68,10 @@ public:
 #if SERIAL_TOOL
   cilkscale_timer_t timer;
 #else
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcilk-ignored"
   cilkscale_timer_reducer timer;
+#pragma clang diagnostic pop
 #endif
 
   std::ostream &outs = std::cout;
@@ -157,14 +159,13 @@ BenchmarkImpl_t::BenchmarkImpl_t() {
 
 #if !SERIAL_TOOL
   __cilkrts_reducer_register
-    (&timer, sizeof timer, timer_identity, timer_reduce, timer_destroy);
+    (&timer, sizeof timer, timer_identity, timer_reduce);
 
   outf_red = new out_reducer((outf.is_open() ? outf : outs));
   __cilkrts_reducer_register
     (outf_red, sizeof *outf_red,
      &cilk::ostream_view<char, std::char_traits<char>>::identity,
-     &cilk::ostream_view<char, std::char_traits<char>>::reduce,
-     &cilk::ostream_view<char, std::char_traits<char>>::destruct);
+     &cilk::ostream_view<char, std::char_traits<char>>::reduce);
 #endif
 
   start.gettime();
