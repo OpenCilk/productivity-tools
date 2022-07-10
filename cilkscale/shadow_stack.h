@@ -193,10 +193,8 @@ public:
     }
     // Add the continuation span from the right stack into the left.
     l_bot.contin_bspan += r_bot.contin_bspan;
-  }
 
-  static void destruct(void *view) {
-    static_cast<shadow_stack_t *>(view)->~shadow_stack_t();
+    right->~shadow_stack_t();
   }
 
   duration_t elapsed_time() {
@@ -205,8 +203,7 @@ public:
 };
 
 typedef shadow_stack_t _Hyperobject(shadow_stack_t::identity,
-                                    shadow_stack_t::reduce,
-                                    shadow_stack_t::destruct)
+                                    shadow_stack_t::reduce)
   shadow_stack_reducer;
 
 #endif
