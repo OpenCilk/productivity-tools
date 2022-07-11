@@ -5,7 +5,6 @@ import re
 can_plot = True
 try:
   import matplotlib
-  import matplotlib.pyplot as plt
 except ImportError:
   can_plot = False
 
@@ -126,8 +125,10 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
 
   num_plots = len(all_data)
 
-  logger.info("Generating plot")
+  logger.info("Generating plot (" + str(num_plots) + " subplots)")
+  # matplotlib.use() must be called before importing matplotlib.pyplot.
   matplotlib.use('PDF')
+  import matplotlib.pyplot as plt
   fig, axs = plt.subplots(nrows=num_plots, ncols=2, figsize=(12,6*num_plots), squeeze=False)
 
   for r in range(num_plots):
