@@ -101,14 +101,21 @@ def get_row_data(out_csv, rows_to_plot, max_cpus=0):
             data["obs_speedup"].append(float("nan"))
           else:
             data["obs_runtime"].append(float(row[bench_col]))
-            data["obs_speedup"].append(single_core_runtime/float(row[bench_col]))
+            if 0.0 == float(row[bench_col]):
+              data["obs_speedup"].append(float("nan"))
+            else:
+              data["obs_speedup"].append(single_core_runtime/float(row[bench_col]))
             bench_col += 1
           data["perf_lin_runtime"].append(single_core_runtime/i)
-          data["greedy_runtime"].append(bound_runtime(single_core_runtime, parallelism, i))
+          greedy_runtime_bound = bound_runtime(single_core_runtime, parallelism, i)
+          data["greedy_runtime"].append(greedy_runtime_bound)
           data["span_runtime"].append(single_core_runtime/parallelism)
 
           data["perf_lin_speedup"].append(1.0*i)
-          data["greedy_speedup"].append(single_core_runtime/(bound_runtime(single_core_runtime, parallelism, i)))
+          if 0.0 == greedy_runtime_bound:
+            data["greedy_speedup"].append(float("nan"))
+          else:
+            data["greedy_speedup"].append(single_core_runtime/(bound_runtime(single_core_runtime, parallelism, i)))
           data["span_speedup"].append(parallelism)
 
         all_data.append((tag, data))
@@ -141,7 +148,7 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     axs[r,0].plot(data["num_workers"], data["obs_runtime"], "mo", label="Observed", linestyle='None', markersize = 5)
     axs[r,0].plot(data["num_workers"], data["perf_lin_runtime"], "g", label="Perfect linear speedup")
     axs[r,0].plot(data["num_workers"], data["greedy_runtime"], "c", label="Burdened-dag bound")
-    axs[r,0].plot(data["num_workers"], data["span_runtime"], "y", label="Span bound = " + "{:.5f}s".format(data["span_runtime"][0]))
+    axs[r,0].plot(data["num_workers"], data["span_runtime"], "y", label="Span bound = " + "{:.5f} s".format(data["span_runtime"][0]))
 
     if cpus:
       num_workers = len(cpus)
