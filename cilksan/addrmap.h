@@ -2,6 +2,7 @@
 #ifndef _ADDR_MAP_H
 #define _ADDR_MAP_H
 
+#include <cstdint>
 #include <sys/mman.h>
 
 #include "checking.h"

@@ -5,7 +5,7 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <stdint.h>
+#include <cstdint>
 
 #include "aligned_alloc.h"
 #include "debug_util.h"
