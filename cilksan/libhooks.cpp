@@ -2179,9 +2179,9 @@ CILKSAN_API void __csan_memchr(const csi_id_t call_id, const csi_id_t func_id,
 }
 
 CILKSAN_API void __csan_memcmp(const csi_id_t call_id, const csi_id_t func_id,
-                             unsigned MAAP_count, const call_prop_t prop,
-                             int result, const void *lhs, const void *rhs,
-                             size_t count) {
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, const void *lhs, const void *rhs,
+                               size_t count) {
   START_HOOK(call_id);
 
   MAAP_t lhs_MAAPVal = MAAP_t::ModRef, rhs_MAAPVal = MAAP_t::ModRef;

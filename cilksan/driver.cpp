@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "addrmap.h"
 #include "checking.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
@@ -15,7 +16,6 @@
 #include "race_detect_update.h"
 #include "simple_shadow_mem.h"
 #include "stack.h"
-#include "addrmap.h"
 
 // FILE io used to print error messages
 extern FILE *err_io;
