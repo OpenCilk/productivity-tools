@@ -2200,6 +2200,74 @@ CILKSAN_API void __csan_memcmp(const csi_id_t call_id, const csi_id_t func_id,
   check_read_bytes(call_id, rhs_MAAPVal, rhs, count);
 }
 
+CILKSAN_API void __csan_memcpy(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               void *result, void *dst, const void *src,
+                               size_t count) {
+  START_HOOK(call_id);
+
+  MAAP_t dst_MAAPVal = MAAP_t::ModRef, src_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    dst_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    src_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  if (nullptr == dst || nullptr == src)
+    return;
+
+  check_read_bytes(call_id, src_MAAPVal, src, count);
+  check_write_bytes(call_id, dst_MAAPVal, dst, count);
+}
+
+CILKSAN_API void __csan_memmove(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                void *result, void *dst, const void *src,
+                                size_t count) {
+  START_HOOK(call_id);
+
+  MAAP_t dst_MAAPVal = MAAP_t::ModRef, src_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    dst_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    src_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  if (nullptr == dst || nullptr == src)
+    return;
+
+  check_read_bytes(call_id, src_MAAPVal, src, count);
+  check_write_bytes(call_id, dst_MAAPVal, dst, count);
+}
+
+CILKSAN_API void __csan_memset(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               void *result, void *dst, int ch, size_t count) {
+  START_HOOK(call_id);
+
+  MAAP_t dst_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    // Pop MAAP values off in reverse order
+    dst_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, dst_MAAPVal, dst, count);
+}
+
 CILKSAN_API void __csan_mkdir(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               int result, const char *filename, mode_t mode) {
