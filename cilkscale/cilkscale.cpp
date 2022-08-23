@@ -173,7 +173,7 @@ CilkscaleImpl_t::CilkscaleImpl_t() {
   shadow_stack = new shadow_stack_t(frame_type::MAIN);
 #else
   shadow_stack = new shadow_stack_reducer();
-  __cilkrts_reducer_register(shadow_stack, sizeof *shadow_stack,
+  __cilkrts_reducer_register(shadow_stack, sizeof(*shadow_stack),
                              &shadow_stack_t::identity,
                              &shadow_stack_t::reduce);
 #endif
@@ -184,10 +184,10 @@ CilkscaleImpl_t::CilkscaleImpl_t() {
 
 #if !SERIAL_TOOL
   outf_red = new out_reducer((outf.is_open() ? outf : outs));
-  __cilkrts_reducer_register
-    (outf_red, sizeof *outf_red,
-     &cilk::ostream_view<char, std::char_traits<char>>::identity,
-     &cilk::ostream_view<char, std::char_traits<char>>::reduce);
+  __cilkrts_reducer_register(
+      outf_red, sizeof(*outf_red),
+      &cilk::ostream_view<char, std::char_traits<char>>::identity,
+      &cilk::ostream_view<char, std::char_traits<char>>::reduce);
 #endif
 
   shadow_stack->push(frame_type::SPAWNER);
