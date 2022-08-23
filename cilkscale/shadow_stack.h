@@ -72,9 +72,6 @@ struct shadow_stack_t {
   cilkscale_timer_t start;
   cilkscale_timer_t stop;
 
-  // // Running total of work.
-  // cilk_time_t running_work = cilk_time_t::zero();
-
 private:
   // Dynamic array of shadow-stack frames.
   shadow_stack_frame_t *frames;
