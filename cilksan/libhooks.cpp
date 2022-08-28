@@ -330,6 +330,14 @@ CILKSAN_API void __csan_llvm_x86_avx2_gather_d_pd_256(
       call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
 }
 
+CILKSAN_API void __csan_llvm_x86_sse2_pause(const csi_id_t call_id,
+                                            const csi_id_t func_id,
+                                            unsigned MAAP_count,
+                                            const call_prop_t prop) {
+  // Nothing to do to check a pause instruction.
+  return;
+}
+
 CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
                                        const csi_id_t func_id,
                                        unsigned MAAP_count,
