@@ -338,6 +338,23 @@ CILKSAN_API void __csan_llvm_x86_sse2_pause(const csi_id_t call_id,
   return;
 }
 
+CILKSAN_API void __csan_llvm_aarch64_hint(const csi_id_t call_id,
+                                          const csi_id_t func_id,
+                                          unsigned MAAP_count,
+                                          const call_prop_t prop, int32_t arg) {
+  switch (arg) {
+  case 1: { // yield instruction
+    // Nothing to do to check a yield instruction.
+    return;
+  }
+  default: {
+    // Unknown hint.  Call the default libhook.
+    __csan_default_libhook(call_id, func_id, MAAP_count);
+    return;
+  }
+  }
+}
+
 CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
                                        const csi_id_t func_id,
                                        unsigned MAAP_count,
