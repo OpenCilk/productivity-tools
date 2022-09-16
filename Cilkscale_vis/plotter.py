@@ -132,6 +132,9 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
 
   num_plots = len(all_data)
 
+  clr_face_ax = [0.97] * 3;    # off-white
+  grid_ax = {"b": True, "linestyle": ":"}
+
   logger.info("Generating plot (" + str(num_plots) + " subplots)")
   # matplotlib.use() must be called before importing matplotlib.pyplot.
   matplotlib.use('PDF')
@@ -162,6 +165,8 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     axs[r,0].set_title(tag + " execution time")
     axs[r,0].set(xlim=[0,num_workers])
     axs[r,0].set_aspect(1.0/axs[r,0].get_data_ratio())
+    axs[r,0].set_facecolor(clr_face_ax)
+    axs[r,0].grid(**grid_ax)
 
     axs[r,0].legend(loc="upper right")
 
@@ -177,6 +182,8 @@ def plot(out_csv="out.csv", out_plot="plot.pdf", rows_to_plot=[0], cpus=[]):
     axs[r,1].set_title(tag + " speedup")
     axs[r,1].set(xlim=[0,num_workers], ylim=[0,num_workers])
     axs[r,1].set_aspect(1.0/axs[r,1].get_data_ratio())
+    axs[r,1].set_facecolor(clr_face_ax)
+    axs[r,1].grid(**grid_ax)
 
     axs[r,1].legend(loc="upper left")
 
