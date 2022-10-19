@@ -52,7 +52,7 @@ set(CILKSAN_DYNAMIC_LINK_FLAGS ${CILKSAN_COMMON_LINK_FLAGS})
 # Setup flags and defs for cilktool bitcode build
 set(CILKSAN_BITCODE_CFLAGS ${CILKSAN_CFLAGS} -emit-llvm)
 set(CILKSAN_BITCODE_DEFINITIONS ${CILKSAN_COMMON_DEFINITIONS}
-    "CILKSAN_VIS=")
+    "CILKSAN_VIS=__attribute__((noinline))")
 
 # Build Cilksan runtimes shipped with Clang.
 add_cilktools_component(cilksan)
