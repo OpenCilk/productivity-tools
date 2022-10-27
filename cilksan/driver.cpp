@@ -1115,6 +1115,30 @@ void __csan_after_free(const csi_id_t free_id,
   }
 }
 
+CILKSAN_API bool __cilksan_should_check(void) {
+  return CILKSAN_INITIALIZED && should_check();
+}
+
+CILKSAN_API void __cilksan_record_alloc(void *addr, size_t size) {
+  CheckingRAII nocheck;
+  if (malloc_sizes.contains((uintptr_t)addr))
+    malloc_sizes.remove((uintptr_t)addr);
+  malloc_sizes.insert((uintptr_t)addr, size);
+  CilkSanImpl.clear_shadow_memory((size_t)addr, size);
+}
+
+CILKSAN_API void __cilksan_record_free(void *ptr) {
+  CheckingRAII nocheck;
+  const size_t *size = malloc_sizes.get((uintptr_t)ptr);
+  if (malloc_sizes.contains((uintptr_t)ptr)) {
+    // We can't properly mark the freed addresses like writes, so we
+    // just clear the corresponding shadow memory.
+    CilkSanImpl.clear_alloc((size_t)ptr, *size);
+    CilkSanImpl.clear_shadow_memory((size_t)ptr, *size);
+    // malloc_sizes.remove((uintptr_t)ptr);
+  }
+}
+
 // FIXME: Currently these dynamic interposers are never used, because common
 // third-party libraries, such as jemalloc, do not work properly when these
 // methods are dynamically interposed.  We therefore rely on Cilksan hooks to

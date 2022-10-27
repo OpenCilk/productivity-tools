@@ -117,6 +117,10 @@ static inline bool is_on_stack(uintptr_t addr) {
   return (addr <= stack_high_addr && addr >= stack_low_addr);
 }
 
+CILKSAN_API bool __cilksan_should_check(void);
+CILKSAN_API void __cilksan_record_alloc(void *addr, size_t size);
+CILKSAN_API void __cilksan_record_free(void *ptr);
+
 CILKSAN_API void __cilksan_begin_atomic();
 CILKSAN_API void __cilksan_end_atomic();
 
