@@ -1073,7 +1073,7 @@ void CilkSanImpl_t::init() {
     }
   }
 
-  std::cout << "Running Cilksan race detector.\n";
+  std::cerr << "Running Cilksan race detector.\n";
 
   // these are true upon creation of the stack
   cilksan_assert(frame_stack.size() == 1);
