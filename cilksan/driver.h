@@ -117,4 +117,7 @@ static inline bool is_on_stack(uintptr_t addr) {
   return (addr <= stack_high_addr && addr >= stack_low_addr);
 }
 
+CILKSAN_API void __cilksan_begin_atomic();
+CILKSAN_API void __cilksan_end_atomic();
+
 #endif // __DRIVER_H__
