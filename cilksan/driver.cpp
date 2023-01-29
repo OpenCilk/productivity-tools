@@ -166,22 +166,12 @@ static void init_internal() {
 
   if (__cilkrts_is_initialized()) {
     __cilkrts_internal_set_nworkers(1);
-    __cilkrts_internal_set_force_reduce(1);
   } else {
     // Force the number of Cilk workers to be 1.
     const char *e = getenv("CILK_NWORKERS");
     if (!e || 0 != strcmp(e, "1")) {
       if (setenv("CILK_NWORKERS", "1", 1)) {
         fprintf(err_io, "Error setting CILK_NWORKERS to be 1\n");
-        exit(1);
-      }
-    }
-
-    // Force reductions.
-    e = getenv("CILK_FORCE_REDUCE");
-    if (!e || 0 != strcmp(e, "1")) {
-      if (setenv("CILK_FORCE_REDUCE", "1", 1)) {
-        fprintf(err_io, "Error setting CILK_FORCE_REDUCE to be 1\n");
         exit(1);
       }
     }

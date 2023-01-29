@@ -11,6 +11,7 @@
 #include "dictionary.h"
 #include "disjointset.h"
 #include "frame_data.h"
+#include "hypertable.h"
 #include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "stack.h"
@@ -125,7 +126,7 @@ public:
   inline bool is_local_synced() const {
     FrameData_t *f = frame_stack.head();
     // If this is a loop frame, assume we're not locally synced.
-    if (LOOP_FRAME == f->frame_data.frame_type)
+    if (isLoopFrame(f->frame_data))
       return false;
     // Otherwise check if this frame has nonempty P-bags.
     if (f->Pbags)
@@ -134,6 +135,68 @@ public:
           return false;
     return true;
   }
+
+  // Returns true if the current strand could have been stolen.
+  bool stealable() const {
+    FrameData_t *f = frame_stack.head();
+    return f->in_continuation() || (f->get_parent_continuation() > 0);
+  }
+
+  hyper_table *get_reducer_views() const {
+    FrameData_t *f = frame_stack.head();
+    if (f->in_continuation())
+      return f->reducer_views;
+    if (f->get_parent_continuation() == 0)
+      return nullptr;
+    return frame_stack.ancestor(f->get_parent_continuation())->reducer_views;
+  }
+
+  hyper_table *get_or_create_reducer_views() {
+    FrameData_t *f = frame_stack.head();
+    if (f->in_continuation())
+      return f->get_or_create_reducer_views();
+
+    assert(f->get_parent_continuation() > 0);
+    return frame_stack.ancestor(f->get_parent_continuation())
+        ->get_or_create_reducer_views();
+  }
+
+  // Attempt to look up a view for a reducer.  Returns a pointer to a view if it
+  // exists and nullptr if not.
+  void *reducer_lookup(hyper_table *reducer_views, uintptr_t key) const {
+    bucket *b = reducer_views->find(key);
+    if (b) {
+      assert(key == b->key);
+      return b->value.view;
+    }
+    return nullptr;
+  }
+
+  // Create a new reducer view.
+  void *create_reducer_view(hyper_table *__restrict__ reducer_views,
+                            uintptr_t key, size_t size, void *identity_ptr,
+                            void *reduce_ptr) {
+    __cilk_identity_fn identity = (__cilk_identity_fn)identity_ptr;
+    __cilk_reduce_fn reduce = (__cilk_reduce_fn)reduce_ptr;
+
+    // Allocate and initialize a new view.  Make sure the shadow memory is clear
+    // for that allocation.
+    void *new_view = malloc(size);
+    clear_shadow_memory((size_t)new_view, size);
+    identity(new_view);
+
+    // Insert the view into the table of reducer_views.
+    bucket new_bucket = {.key = (uintptr_t)key,
+                         .value = {.view = new_view, .reduce_fn = reduce}};
+    bool success = reducer_views->insert(new_bucket);
+    assert(success && "create_reducer_view failed to insert new reducer.");
+    (void)success;
+
+    // Return the new view.
+    return new_view;
+  }
+
+  void reduce_local_views();
 
   // Control-flow actions
   void do_enter(unsigned num_sync_reg);
@@ -145,7 +208,7 @@ public:
   void do_loop_iteration_end();
   void do_loop_end(unsigned sync_reg);
   bool in_loop() const {
-    return LOOP_FRAME == frame_stack.head()->frame_data.frame_type;
+    return isLoopFrame(frame_stack.head()->frame_data);
   }
   bool handle_loop() const { return in_loop() || start_new_loop; }
   void do_sync(unsigned sync_reg);

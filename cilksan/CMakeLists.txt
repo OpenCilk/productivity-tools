@@ -7,7 +7,8 @@ set(CILKSAN_SOURCES
   driver.cpp
   libhooks.cpp
   locking.cpp
-  print_addr.cpp)
+  print_addr.cpp
+  reducers.cpp)
 
 set(CILKSAN_BITCODE_SOURCE
   driver.cpp

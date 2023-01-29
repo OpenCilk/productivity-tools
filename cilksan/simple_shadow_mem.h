@@ -1672,7 +1672,8 @@ public:
     // Since we only need to query the previous write access, we can still
     // handle this read even if we don't have a previous write access.
     bool need_check = write_line && !write_line->isEmpty();
-    if (need_check && (1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
+    if (need_check &&
+        (1 << write_line->getLgGrainsize()) != (unsigned)mem_size) {
       // This access touches more than one entry in the line.  Handle it via the
       // slow path.
       check_race_with_prev_write<true>(acc_id, type, addr, mem_size, f);

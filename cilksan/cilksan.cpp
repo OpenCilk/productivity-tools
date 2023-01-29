@@ -285,8 +285,8 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
 
   // Get the parent pointer after we push, because once pused, the
   // pointer may no longer be valid due to resize.
+  FrameData_t *parent = frame_stack.ancestor(1);
   WHEN_CILKSAN_DEBUG({
-    FrameData_t *parent = frame_stack.ancestor(1);
     DBG_TRACE(DEBUG_CALLBACK, "parent frame %ld.\n", parent->frame_id);
   });
   SBag_t *child_sbag;
@@ -300,6 +300,16 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
   child_sbag = createNewSBag(frame_id, call_stack);
 
   child->init_new_function(child_sbag);
+
+  if (parent->in_continuation())
+    child->set_parent_continuation(1);
+  else {
+    uint32_t parent_contin = parent->get_parent_continuation();
+    if (parent_contin > 0)
+      child->set_parent_continuation(parent_contin + 1);
+    else
+      child->set_parent_continuation(0);
+  }
 
   if (num_sync_reg > 0) {
     DBG_TRACE(DEBUG_BAGS, "Creating PBag array of size %d for frame %ld\n",
@@ -345,8 +355,7 @@ inline void CilkSanImpl_t::enter_detach_child(unsigned num_sync_reg) {
   DBG_TRACE(DEBUG_CALLBACK, "done detach, push frame_stack\n");
   start_new_function(num_sync_reg);
   // Set the frame data.
-  frame_stack.head()->frame_data.entry_type = DETACHER;
-  frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
+  frame_stack.head()->frame_data = EntryFrameType::DETACHER_SHADOW_FRAME;
   DBG_TRACE(DEBUG_CALLBACK, "new detach frame started\n");
 }
 
@@ -354,7 +363,8 @@ inline void CilkSanImpl_t::enter_detach_child(unsigned num_sync_reg) {
 /// (That is, returning from a spawn helper.)
 inline void CilkSanImpl_t::return_from_detach(unsigned sync_reg) {
   DBG_TRACE(DEBUG_CALLBACK, "return from detach, pop frame_stack\n");
-  cilksan_assert(DETACHER == frame_stack.head()->frame_data.entry_type);
+  cilksan_assert(isDetacher(frame_stack.head()->frame_data));
+
   // param: we are returning from a spawn
   merge_bag_from_returning_child(1, sync_reg);
   exit_function();
@@ -391,8 +401,7 @@ void CilkSanImpl_t::do_enter(unsigned num_sync_reg) {
             "frame %ld cilk_enter_frame_begin, stack depth %d\n", frame_id + 1,
             frame_stack.size());
   enter_cilk_function(num_sync_reg);
-  frame_stack.head()->frame_data.entry_type = SPAWNER;
-  frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
+  frame_stack.head()->frame_data = EntryFrameType::SPAWNER_SHADOW_FRAME;
 
   WHEN_CILKSAN_DEBUG(
       cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER));
@@ -408,8 +417,7 @@ void CilkSanImpl_t::do_enter_helper(unsigned num_sync_reg) {
   WHEN_CILKSAN_DEBUG(last_event = ENTER_HELPER;);
 
   enter_cilk_function(num_sync_reg);
-  frame_stack.head()->frame_data.entry_type = DETACHER;
-  frame_stack.head()->frame_data.frame_type = SHADOW_FRAME;
+  frame_stack.head()->frame_data = EntryFrameType::DETACHER_SHADOW_FRAME;
 
   WHEN_CILKSAN_DEBUG(
       cilksan_assert(last_event == ENTER_FRAME || last_event == ENTER_HELPER));
@@ -442,8 +450,10 @@ void CilkSanImpl_t::do_detach_continue() {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_detach_continue\n");
 
+  reduce_local_views();
   update_strand_stats();
   shadow_memory->clearOccupied();
+  frame_stack.head()->enter_continuation();
 }
 
 void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
@@ -457,7 +467,7 @@ void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
     do_enter_helper(num_sync_reg > 0 ? num_sync_reg : 1);
     // Set this frame's type as LOOP_FRAME.
     FrameData_t *func = frame_stack.head();
-    func->frame_data.frame_type = LOOP_FRAME;
+    func->frame_data = setLoopFrame(func->frame_data);
     // Create a new iteration bag for this frame.
     DBG_TRACE(DEBUG_BAGS, "frame %ld creates an Iter-bag ",
               func->Sbag->get_func_id());
@@ -470,10 +480,12 @@ void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
     cilksan_assert(in_loop());
     update_strand_stats();
     shadow_memory->clearOccupied();
+    frame_stack.head()->enter_continuation();
   }
 }
 
 void CilkSanImpl_t::do_loop_iteration_end() {
+  reduce_local_views();
   update_strand_stats();
   shadow_memory->clearOccupied();
 
@@ -567,7 +579,9 @@ void CilkSanImpl_t::do_sync(unsigned sync_reg) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == CILK_SYNC));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 
+  reduce_local_views();
   complete_sync(sync_reg);
+  frame_stack.head()->exit_continuation();
 }
 
 void CilkSanImpl_t::do_leave(unsigned sync_reg) {
@@ -578,19 +592,16 @@ void CilkSanImpl_t::do_leave(unsigned sync_reg) {
             frame_stack.head()->frame_id);
   cilksan_assert(frame_stack.size() > 1);
 
-  switch(frame_stack.head()->frame_data.entry_type) {
-  case SPAWNER:
+  EntryFrameType EFT = frame_stack.head()->frame_data;
+  if (isSpawner(EFT)) {
     DBG_TRACE(DEBUG_CALLBACK, "cilk_leave_frame_begin\n");
-    break;
-  case HELPER:
+  } else if (isHelper(EFT)) {
     DBG_TRACE(DEBUG_CALLBACK, "cilk_leave_helper_begin\n");
-    break;
-  case DETACHER:
+  } else if (isDetacher(EFT)) {
     DBG_TRACE(DEBUG_CALLBACK, "cilk_leave_begin from detach\n");
-    break;
   }
 
-  if (DETACHER == frame_stack.head()->frame_data.entry_type)
+  if (isDetacher(EFT))
     return_from_detach(sync_reg);
   else
     leave_cilk_function(sync_reg);
@@ -1085,6 +1096,7 @@ void CilkSanImpl_t::init() {
   DBG_TRACE(DEBUG_BAGS, "Creating SBag for frame %ld\n", frame_id);
   sbag = createNewSBag(frame_id, call_stack);
   frame_stack.head()->set_sbag(sbag);
-  WHEN_CILKSAN_DEBUG(frame_stack.head()->frame_data.frame_type = FULL_FRAME);
+  WHEN_CILKSAN_DEBUG(frame_stack.head()->frame_data =
+                         setLoopFrame(frame_stack.head()->frame_data));
   WHEN_CILKSAN_DEBUG(CILKSAN_INITIALIZED = true);
 }

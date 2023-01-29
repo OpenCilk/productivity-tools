@@ -4,15 +4,83 @@
 
 #include "csan.h"
 #include "disjointset.h"
+#include "hypertable.h"
 #include "spbag.h"
 
-enum EntryType_t : uint8_t { SPAWNER = 1, HELPER = 2, DETACHER = 3 };
-enum FrameType_t : uint8_t { SHADOW_FRAME = 1, FULL_FRAME = 2, LOOP_FRAME = 3 };
+enum class EntryFrameType : uint8_t {
+  NONE = 0,
+  // Low two bits denote the entry type.
+  SPAWNER = 1,
+  HELPER = 2,
+  DETACHER = 3,
+  ENTRY_MASK = 3,
+  // Next two bits denote the frame type
+  SHADOW_FRAME = 1 << 2,
+  FULL_FRAME = 2 << 2,
+  LOOP_FRAME = 3 << 2,
+  FRAME_MASK = 3 << 2,
+  // Convenient combined values for entry and frame types.
+  SPAWNER_SHADOW_FRAME = SPAWNER | SHADOW_FRAME,
+  DETACHER_SHADOW_FRAME = DETACHER | SHADOW_FRAME,
+};
 
-typedef struct Entry_t {
-  enum EntryType_t entry_type;
-  enum FrameType_t frame_type;
-} Entry_t;
+static inline bool isSpawner(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) & static_cast<int>(EntryFrameType::SPAWNER)) ==
+         static_cast<int>(EntryFrameType::SPAWNER);
+}
+static inline bool isHelper(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) & static_cast<int>(EntryFrameType::HELPER)) ==
+         static_cast<int>(EntryFrameType::HELPER);
+}
+static inline bool isDetacher(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) & static_cast<int>(EntryFrameType::DETACHER)) ==
+         static_cast<int>(EntryFrameType::DETACHER);
+}
+static inline bool isShadowFrame(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) &
+          static_cast<int>(EntryFrameType::SHADOW_FRAME)) ==
+         static_cast<int>(EntryFrameType::SHADOW_FRAME);
+}
+static inline bool isFullFrame(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) &
+          static_cast<int>(EntryFrameType::FULL_FRAME)) ==
+         static_cast<int>(EntryFrameType::FULL_FRAME);
+}
+static inline bool isLoopFrame(const EntryFrameType EFT) {
+  return (static_cast<int>(EFT) &
+          static_cast<int>(EntryFrameType::LOOP_FRAME)) ==
+         static_cast<int>(EntryFrameType::LOOP_FRAME);
+}
+static inline EntryFrameType setSpawner(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::ENTRY_MASK)) |
+      static_cast<int>(EntryFrameType::SPAWNER));
+}
+static inline EntryFrameType setHelper(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::ENTRY_MASK)) |
+      static_cast<int>(EntryFrameType::HELPER));
+}
+static inline EntryFrameType setDetacher(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::ENTRY_MASK)) |
+      static_cast<int>(EntryFrameType::DETACHER));
+}
+static inline EntryFrameType setShadowFrame(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::FRAME_MASK)) |
+      static_cast<int>(EntryFrameType::SHADOW_FRAME));
+}
+static inline EntryFrameType setFullFrame(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::FRAME_MASK)) |
+      static_cast<int>(EntryFrameType::FULL_FRAME));
+}
+static inline EntryFrameType setLoopFrame(const EntryFrameType EFT) {
+  return EntryFrameType(
+      (static_cast<int>(EFT) & ~static_cast<int>(EntryFrameType::FRAME_MASK)) |
+      static_cast<int>(EntryFrameType::LOOP_FRAME));
+}
 
 // Helper method to create a new SBag.
 static inline SBag_t *createNewSBag(uint64_t func_id, call_stack_t call_stack) {
@@ -30,14 +98,21 @@ static inline PBag_t *createNewPBag() {
 }
 
 // Struct for keeping track of shadow frame
-typedef struct FrameData_t {
+struct FrameData_t {
   mutable bool Sbag_used = false;
   mutable bool Iterbag_used = false;
-  Entry_t frame_data;
+  EntryFrameType frame_data;
+  // Whether the current instruction is in a continuation in this frame.
+  bool InContin = false;
+  // If this frame was called from the continuation of an ancestor, identifies
+  // that ancestor.  Otherwise equals 0.
+  uint32_t ParentContin = 0;
+  // Pointers to bags
   unsigned num_Pbags = 0;
   SBag_t *Sbag = nullptr;
   PBag_t **Pbags = nullptr;
   SBag_t *Iterbag = nullptr;
+  hyper_table *reducer_views = nullptr;
 
   // fields that are for debugging purpose only
 #if CILKSAN_DEBUG
@@ -143,13 +218,26 @@ typedef struct FrameData_t {
 
   bool is_Sbag_used() const { return Sbag_used; }
   bool is_Iterbag_used() const { return Iterbag_used; }
+  bool in_continuation() const { return InContin; }
+  uint32_t get_parent_continuation() const { return ParentContin; }
+  hyper_table *get_or_create_reducer_views() {
+    if (!reducer_views)
+      reducer_views = new hyper_table;
+    return reducer_views;
+  }
 
   void set_Sbag_used(bool v = true) const { Sbag_used = v; }
   void set_Iterbag_used(bool v = true) const { Iterbag_used = v; }
-
-  bool is_loop_frame() const {
-    return (LOOP_FRAME == frame_data.frame_type);
+  void set_in_continuation(bool v = true) { InContin = v; }
+  void enter_continuation() { InContin = true; }
+  void exit_continuation() { InContin = false; }
+  void set_parent_continuation(uint32_t c) { ParentContin = c; }
+  void set_or_merge_reducer_views(hyper_table *right_table) {
+    reducer_views =
+        hyper_table::merge_two_hyper_tables(reducer_views, right_table);
   }
+
+  bool is_loop_frame() const { return isLoopFrame(frame_data); }
 
   void create_iterbag() {
     cilksan_assert(is_loop_frame());
@@ -176,6 +264,6 @@ typedef struct FrameData_t {
     return Iterbag;
   }
 
-} FrameData_t;
+};
 
 #endif // __FRAME_DATA_H__
