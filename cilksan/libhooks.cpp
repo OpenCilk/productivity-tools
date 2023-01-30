@@ -3347,6 +3347,39 @@ CILKSAN_API void __csan_scanf(const csi_id_t call_id, const csi_id_t func_id,
   va_end(ap);
 }
 
+CILKSAN_API void __csan_setvbuf(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int res, FILE *__restrict__ stream,
+                                char *__restrict__ buf, int mode, size_t size) {
+  START_HOOK(call_id);
+
+  if (!is_execution_parallel() || res != 0) {
+    for (unsigned i = 0; i < MAAP_count; ++i)
+      MAAPs.pop();
+    return;
+  }
+
+  MAAP_t stream_MAAPVal = MAAP_t::ModRef, buf_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    stream_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+    buf_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  (void)stream_MAAPVal;
+  if (buf != nullptr)
+    check_write_bytes(call_id, buf_MAAPVal, buf, size);
+}
+
+CILKSAN_API void __csan_setbuf(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               FILE *__restrict__ stream,
+                               char *__restrict__ buf) {
+  __csan_setvbuf(call_id, func_id, MAAP_count, prop, 0, stream, buf,
+                 buf ? _IOFBF : _IONBF, BUFSIZ);
+}
+
 CILKSAN_API void __csan_sinf(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              float result, float arg) {
@@ -4616,6 +4649,23 @@ CILKSAN_API void __csan_strxfrm(const csi_id_t call_id, const csi_id_t func_id,
   size_t xfrm_len = 1 + strxfrm(nullptr, str2, 0);
   if (nullptr != str1)
     check_write_bytes(call_id, str2_MAAPVal, str2, xfrm_len);
+}
+
+CILKSAN_API void __csan_system(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, const char *command) {
+  START_HOOK(call_id);
+
+  MAAP_t command_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    command_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_read_bytes(call_id, command_MAAPVal, command, strlen(command) + 1);
 }
 
 CILKSAN_API void __csan_tanf(const csi_id_t call_id, const csi_id_t func_id,
