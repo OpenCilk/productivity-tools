@@ -23,6 +23,8 @@ struct bucket {
   void make_tombstone() { key = KEY_DELETED; }
 };
 
+class CilkSanImpl_t;
+
 // Hash table of reducers.  We don't need any locking or support for concurrent
 // updates, since the hypertable is local.
 class hyper_table {
@@ -413,64 +415,9 @@ public:
     ins_rm_count = 0;
   }
 
-  static hyper_table *merge_two_hyper_tables(hyper_table *__restrict__ left,
-                                             hyper_table *__restrict__ right) {
-    // In the trivial case of an empty hyper_table, return the other
-    // hyper_table.
-    if (!left || left->occupancy == 0)
-      return right;
-    if (!right || right->occupancy == 0)
-      return left;
-
-    // Pick the smaller hyper_table to be the source to iterate over.
-    bool left_dst;
-    hyper_table *src, *dst;
-    if (left->occupancy >= right->occupancy) {
-      src = right;
-      dst = left;
-      left_dst = true;
-    } else {
-      src = left;
-      dst = right;
-      left_dst = false;
-    }
-
-    int32_t src_capacity =
-        (src->capacity < MIN_HT_CAPACITY) ? src->occupancy : src->capacity;
-    bucket *src_buckets = src->buckets;
-    // Iterate over the contents of the source hyper_table.
-    for (int32_t i = 0; i < src_capacity; ++i) {
-      struct bucket b = src_buckets[i];
-      if (!is_valid(b.key))
-        continue;
-
-      // For each valid key in the source table, lookup that key in the
-      // destination table.
-      bucket *dst_bucket = dst->find(b.key);
-
-      if (NULL == dst_bucket) {
-        // The destination table does not contain this key.  Insert the
-        // key-value pair from the source table into the destination.
-        dst->insert(b);
-      } else {
-        // Merge the two views in the source and destination buckets, being sure
-        // to preserve left-to-right ordering.  Free the right view when done.
-        reducer_base dst_rb = dst_bucket->value;
-        if (left_dst) {
-          dst_rb.reduce_fn(dst_rb.view, b.value.view);
-          free(b.value.view);
-        } else {
-          dst_rb.reduce_fn(b.value.view, dst_rb.view);
-          free(dst_rb.view);
-          dst_rb.view = b.value.view;
-        }
-      }
-    }
-
-    // Destroy the source hyper_table, and return the destination.
-    delete src;
-    return dst;
-  }
+  static hyper_table *merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
+                                             hyper_table *__restrict__ left,
+                                             hyper_table *__restrict__ right);
 };
 
 #endif // _HYPERTABLE_H

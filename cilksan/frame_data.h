@@ -2,6 +2,7 @@
 #ifndef __FRAME_DATA_H__
 #define __FRAME_DATA_H__
 
+#include "cilksan_internal.h"
 #include "csan.h"
 #include "disjointset.h"
 #include "hypertable.h"
@@ -103,7 +104,7 @@ struct FrameData_t {
   mutable bool Iterbag_used = false;
   EntryFrameType frame_data;
   // Whether the current instruction is in a continuation in this frame.
-  bool InContin = false;
+  uint8_t InContin = 0;
   // If this frame was called from the continuation of an ancestor, identifies
   // that ancestor.  Otherwise equals 0.
   uint32_t ParentContin = 0;
@@ -167,49 +168,29 @@ struct FrameData_t {
     num_Pbags = copy_num_Pbags;
   }
 
+  // This function, not the FrameData_t destructor, is the primary way in which
+  // frames are deinitialized.  Remember to update this function whenever new
+  // fields are added.
   void reset() {
     set_sbag(nullptr);
     clear_pbag_array();
     set_iterbag(nullptr);
+    InContin = 0;
+    set_parent_continuation(0);
+    // reducer_views = nullptr;
   }
 
-  FrameData_t() {}
+  FrameData_t() = default;
+  FrameData_t(const FrameData_t &copy) = delete;
 
   ~FrameData_t() {
     // update ref counts
     reset();
   }
 
-  // Copy constructor and assignment operator ensure that reference
-  // counts are properly maintained during resizing.
-  FrameData_t(const FrameData_t &copy)
-      : frame_data(copy.frame_data)
-#if CILKSAN_DEBUG
-        ,
-        frame_id(copy.frame_id)
-#endif
-  {
-    set_sbag(copy.Sbag);
-    set_Sbag_used(copy.is_Sbag_used());
-    copy_pbag_array(copy.num_Pbags, copy.Pbags);
-    set_iterbag(copy.Iterbag);
-    set_Iterbag_used(copy.is_Iterbag_used());
-  }
-
-  FrameData_t& operator=(const FrameData_t &copy) {
-    frame_data = copy.frame_data;
-#if CILKSAN_DEBUG
-    frame_id = copy.frame_id;
-#endif
-    set_sbag(copy.Sbag);
-    set_Sbag_used(copy.is_Sbag_used());
-    copy_pbag_array(copy.num_Pbags, copy.Pbags);
-    set_iterbag(copy.Iterbag);
-    set_Iterbag_used(copy.is_Iterbag_used());
-    return *this;
-  }
-
-  // remember to update this whenever new fields are added
+  // This function, not the FrameData_t constructor, is the primary way in which
+  // frames are initialized.  Remember to update this function whenever new
+  // fields are added.
   inline void init_new_function(SBag_t *_sbag) {
     cilksan_assert(Pbags == NULL);
     cilksan_assert(num_Pbags == 0);
@@ -218,7 +199,7 @@ struct FrameData_t {
 
   bool is_Sbag_used() const { return Sbag_used; }
   bool is_Iterbag_used() const { return Iterbag_used; }
-  bool in_continuation() const { return InContin; }
+  bool in_continuation() const { return InContin != 0; }
   uint32_t get_parent_continuation() const { return ParentContin; }
   hyper_table *get_or_create_reducer_views() {
     if (!reducer_views)
@@ -228,13 +209,18 @@ struct FrameData_t {
 
   void set_Sbag_used(bool v = true) const { Sbag_used = v; }
   void set_Iterbag_used(bool v = true) const { Iterbag_used = v; }
-  void set_in_continuation(bool v = true) { InContin = v; }
-  void enter_continuation() { InContin = true; }
-  void exit_continuation() { InContin = false; }
+  // Bits 0 and 1 of InContin identify different types of continuations:
+  //   Bit 0 - the computation is in an ordinary continuation.
+  //   Bit 1 - the computation is in the continuation of a parallel loop.
+  void enter_continuation() { InContin |= 0x1; }
+  void exit_continuation() { InContin &= ~0x1; }
+  void enter_loop_continuation() { InContin |= 0x2; }
+  void exit_loop_continuation() { InContin &= 0x2; }
   void set_parent_continuation(uint32_t c) { ParentContin = c; }
-  void set_or_merge_reducer_views(hyper_table *right_table) {
+  void set_or_merge_reducer_views(CilkSanImpl_t *__restrict__ tool,
+                                  hyper_table *__restrict__ right_table) {
     reducer_views =
-        hyper_table::merge_two_hyper_tables(reducer_views, right_table);
+        hyper_table::merge_two_hyper_tables(tool, reducer_views, right_table);
   }
 
   bool is_loop_frame() const { return isLoopFrame(frame_data); }

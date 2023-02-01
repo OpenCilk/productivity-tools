@@ -310,6 +310,10 @@ inline void CilkSanImpl_t::start_new_function(unsigned num_sync_reg) {
     else
       child->set_parent_continuation(0);
   }
+  cilksan_assert(!child->in_continuation() &&
+                 "New function marked as in-continuation");
+  cilksan_assert(child->reducer_views == nullptr &&
+                 "New function has non-null table of reducer views");
 
   if (num_sync_reg > 0) {
     DBG_TRACE(DEBUG_BAGS, "Creating PBag array of size %d for frame %ld\n",
@@ -348,15 +352,6 @@ inline void CilkSanImpl_t::leave_cilk_function(unsigned sync_reg) {
   // param: not returning from a spawn, sync region 0.
   merge_bag_from_returning_child(0, sync_reg);
   exit_function();
-}
-
-/// Action performed on entering a spawned child, right after detach.
-inline void CilkSanImpl_t::enter_detach_child(unsigned num_sync_reg) {
-  DBG_TRACE(DEBUG_CALLBACK, "done detach, push frame_stack\n");
-  start_new_function(num_sync_reg);
-  // Set the frame data.
-  frame_stack.head()->frame_data = EntryFrameType::DETACHER_SHADOW_FRAME;
-  DBG_TRACE(DEBUG_CALLBACK, "new detach frame started\n");
 }
 
 /// Action performed when returning from a spawned child.
@@ -463,7 +458,6 @@ void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
     // frame_stack.
     DBG_TRACE(DEBUG_CALLBACK, "starting new loop\n");
     // Start a new frame.
-    // do_enter_helper_begin(num_sync_reg > 0 ? num_sync_reg : 1);
     do_enter_helper(num_sync_reg > 0 ? num_sync_reg : 1);
     // Set this frame's type as LOOP_FRAME.
     FrameData_t *func = frame_stack.head();
@@ -480,7 +474,7 @@ void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
     cilksan_assert(in_loop());
     update_strand_stats();
     shadow_memory->clearOccupied();
-    frame_stack.head()->enter_continuation();
+    frame_stack.head()->enter_loop_continuation();
   }
 }
 
@@ -488,6 +482,7 @@ void CilkSanImpl_t::do_loop_iteration_end() {
   reduce_local_views();
   update_strand_stats();
   shadow_memory->clearOccupied();
+  frame_stack.head()->exit_loop_continuation();
 
   // At the end of each iteration, update the LOOP_FRAME for reuse.
   DBG_TRACE(DEBUG_CALLBACK, "do_loop_iteration_end()\n");

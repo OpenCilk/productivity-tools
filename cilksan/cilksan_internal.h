@@ -6,8 +6,8 @@
 #include <iostream>
 #include <unordered_map>
 
+#include "addrmap.h"
 #include "csan.h"
-
 #include "dictionary.h"
 #include "disjointset.h"
 #include "frame_data.h"
@@ -136,6 +136,25 @@ public:
     return true;
   }
 
+  // Helper function to mark an allocated block in the shadow memory.
+  void mark_alloc(const void *addr, size_t size) {
+    if (malloc_sizes.contains((uintptr_t)addr))
+      malloc_sizes.remove((uintptr_t)addr);
+    malloc_sizes.insert((uintptr_t)addr, size);
+    clear_shadow_memory((size_t)addr, size);
+  }
+
+  // Helper function to mark a freed block in the shadow memory, without
+  // enabling race detection on that free.
+  void mark_free(const void *ptr) {
+    const size_t *size = malloc_sizes.get((uintptr_t)ptr);
+    if (malloc_sizes.contains((uintptr_t)ptr)) {
+      // Clear the corresponding shadow memory.
+      clear_alloc((size_t)ptr, *size);
+      clear_shadow_memory((size_t)ptr, *size);
+    }
+  }
+
   // Returns true if the current strand could have been stolen.
   bool stealable() const {
     FrameData_t *f = frame_stack.head();
@@ -156,7 +175,7 @@ public:
     if (f->in_continuation())
       return f->get_or_create_reducer_views();
 
-    assert(f->get_parent_continuation() > 0);
+    cilksan_assert(f->get_parent_continuation() > 0);
     return frame_stack.ancestor(f->get_parent_continuation())
         ->get_or_create_reducer_views();
   }
@@ -182,7 +201,7 @@ public:
     // Allocate and initialize a new view.  Make sure the shadow memory is clear
     // for that allocation.
     void *new_view = malloc(size);
-    clear_shadow_memory((size_t)new_view, size);
+    mark_alloc(new_view, size);
     identity(new_view);
 
     // Insert the view into the table of reducer_views.
@@ -282,6 +301,9 @@ public:
   void print_race_report();
   int get_num_races_found();
 
+  // Map from malloc'd address to size of memory allocation
+  AddrMap_t<size_t> malloc_sizes;
+
 private:
   inline void merge_bag_from_returning_child(bool returning_from_detach,
                                              unsigned sync_reg);
@@ -289,7 +311,6 @@ private:
   inline void exit_function();
   inline void enter_cilk_function(unsigned num_sync_reg);
   inline void leave_cilk_function(unsigned sync_reg);
-  inline void enter_detach_child(unsigned num_sync_reg);
   inline void return_from_detach(unsigned sync_reg);
   inline void complete_sync(unsigned sync_reg);
   template <bool is_read, MAType_t type>
