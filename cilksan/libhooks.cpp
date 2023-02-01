@@ -2373,6 +2373,23 @@ CILKSAN_API void __csan_hypotl(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
+CILKSAN_API void __csan__IO_getc(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 int result, _IO_FILE *__fp) {
+  START_HOOK(call_id);
+
+  MAAP_t fp_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    fp_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, fp_MAAPVal, __fp, 1);
+}
+
 CILKSAN_API void __csan_isascii(const csi_id_t call_id, const csi_id_t func_id,
                                 unsigned MAAP_count, const call_prop_t prop,
                                 int result, int ch) {
