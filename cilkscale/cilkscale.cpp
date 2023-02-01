@@ -354,7 +354,8 @@ void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
 }
 
 CILKTOOL_API
-void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned) {
+void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned,
+                  const detach_prop_t prop) {
   tool->shadow_stack->stop.gettime();
 
 #if TRACE_CALLS

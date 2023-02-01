@@ -91,6 +91,12 @@ typedef struct {
 } loop_exit_prop_t;
 
 typedef struct {
+  // The detach corresponds with a Tapir loop body.
+  unsigned for_tapir_loop_body : 1;
+  uint64_t _padding : 63;
+} detach_prop_t;
+
+typedef struct {
   // The task is the body of a Tapir loop
   unsigned is_tapir_loop_body : 1;
   // Number of sync regions in this function.
@@ -107,7 +113,9 @@ typedef struct {
 typedef struct {
   // The detach continue identifies the unwind destination of a detach.
   unsigned is_unwind : 1;
-  uint64_t _padding : 63;
+  // The detach continue corresponds with the detach of a Tapir loop.
+  unsigned for_tapir_loop_body : 1;
+  uint64_t _padding : 62;
 } detach_continue_prop_t;
 
 typedef struct {
@@ -243,7 +251,8 @@ WEAK void __csi_after_store(const csi_id_t store_id, const void *addr,
 
 ///-----------------------------------------------------------------------------
 /// Hooks for Tapir control flow.
-WEAK void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned);
+WEAK void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned,
+                       const detach_prop_t prop);
 
 WEAK void __csi_task(const csi_id_t task_id, const csi_id_t detach_id,
                      const task_prop_t prop);

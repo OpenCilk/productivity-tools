@@ -471,7 +471,8 @@ CILKSAN_API void __csan_after_call(const csi_id_t call_id,
 // __csan_detach_continue() can cause parallel loops to fail to be properly
 // transformed.  We forbid inlining these functions for now.
 CILKSAN_API __attribute__((noinline)) void
-__csan_detach(const csi_id_t detach_id, const unsigned sync_reg) {
+__csan_detach(const csi_id_t detach_id, const unsigned sync_reg,
+              const detach_prop_t prop) {
   if (!should_check())
     return;
 
@@ -488,7 +489,7 @@ __csan_detach(const csi_id_t detach_id, const unsigned sync_reg) {
   // this notes the change of peer sets.
   parallel_execution.back() = 1;
 
-  if (!CilkSanImpl.handle_loop())
+  if (!prop.for_tapir_loop_body)
     // Push the detach onto the call stack.
     CilkSanImpl.record_call(detach_id, SPAWN);
 }
@@ -607,7 +608,7 @@ __csan_detach_continue(const csi_id_t detach_continue_id,
     CilkSanImpl.do_sync(sync_reg);
   }
 
-  if (!CilkSanImpl.handle_loop()) {
+  if (!prop.for_tapir_loop_body) {
     CilkSanImpl.record_call_return(detach_id, SPAWN);
     CilkSanImpl.do_detach_continue();
   }
