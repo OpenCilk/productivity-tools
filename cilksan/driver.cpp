@@ -599,7 +599,7 @@ __csan_detach_continue(const csi_id_t detach_continue_id,
 
   if (!prop.for_tapir_loop_body) {
     CilkSanImpl.record_call_return(detach_id, SPAWN);
-    CilkSanImpl.do_detach_continue();
+    CilkSanImpl.do_detach_continue(sync_reg);
   }
 
   WHEN_CILKSAN_DEBUG(last_event = NONE);

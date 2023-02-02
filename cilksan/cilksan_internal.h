@@ -221,7 +221,7 @@ public:
   void do_enter(unsigned num_sync_reg);
   void do_enter_helper(unsigned num_sync_reg);
   void do_detach();
-  void do_detach_continue();
+  void do_detach_continue(unsigned sync_reg);
   void do_loop_begin() { start_new_loop = true; }
   void do_loop_iteration_begin(unsigned num_sync_reg);
   void do_loop_iteration_end();

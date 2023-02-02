@@ -209,13 +209,22 @@ struct FrameData_t {
 
   void set_Sbag_used(bool v = true) const { Sbag_used = v; }
   void set_Iterbag_used(bool v = true) const { Iterbag_used = v; }
-  // Bits 0 and 1 of InContin identify different types of continuations:
-  //   Bit 0 - the computation is in an ordinary continuation.
-  //   Bit 1 - the computation is in the continuation of a parallel loop.
-  void enter_continuation() { InContin |= 0x1; }
-  void exit_continuation() { InContin &= ~0x1; }
-  void enter_loop_continuation() { InContin |= 0x2; }
-  void exit_loop_continuation() { InContin &= 0x2; }
+  // Bits of InContin identify different types of continuations:
+  //   Bit 0 - the computation is in the continuation of a parallel loop.
+  //   Bit x > 0 - the computation is in an ordinary continuation for a
+  //     particular sync region.
+  void enter_loop_continuation() { InContin |= 0x1; }
+  void exit_loop_continuation() { InContin &= ~0x1; }
+  void enter_continuation(const unsigned sync_reg) {
+    cilksan_assert(sync_reg < 7 &&
+                   "Error marking continuation.  Please report this issue.");
+    InContin |= (0x2 << sync_reg);
+  }
+  void exit_continuation(const unsigned sync_reg) {
+    cilksan_assert(sync_reg < 7 &&
+                   "Error marking continuation.  Please report this issue.");
+    InContin &= ~(0x2 << sync_reg);
+  }
   void set_parent_continuation(uint32_t c) { ParentContin = c; }
   void set_or_merge_reducer_views(CilkSanImpl_t *__restrict__ tool,
                                   hyper_table *__restrict__ right_table) {

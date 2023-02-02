@@ -441,14 +441,14 @@ void CilkSanImpl_t::do_detach() {
   });
 }
 
-void CilkSanImpl_t::do_detach_continue() {
+void CilkSanImpl_t::do_detach_continue(unsigned sync_reg) {
   WHEN_CILKSAN_DEBUG(cilksan_assert(CILKSAN_INITIALIZED));
   DBG_TRACE(DEBUG_CALLBACK, "cilk_detach_continue\n");
 
   reduce_local_views();
   update_strand_stats();
   shadow_memory->clearOccupied();
-  frame_stack.head()->enter_continuation();
+  frame_stack.head()->enter_continuation(sync_reg);
 }
 
 void CilkSanImpl_t::do_loop_iteration_begin(unsigned num_sync_reg) {
@@ -576,7 +576,7 @@ void CilkSanImpl_t::do_sync(unsigned sync_reg) {
 
   reduce_local_views();
   complete_sync(sync_reg);
-  frame_stack.head()->exit_continuation();
+  frame_stack.head()->exit_continuation(sync_reg);
 }
 
 void CilkSanImpl_t::do_leave(unsigned sync_reg) {
