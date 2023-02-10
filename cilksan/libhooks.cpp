@@ -2373,6 +2373,7 @@ CILKSAN_API void __csan_hypotl(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
+#if defined(__linux__)
 CILKSAN_API void __csan__IO_getc(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  int result, _IO_FILE *__fp) {
@@ -2389,6 +2390,7 @@ CILKSAN_API void __csan__IO_getc(const csi_id_t call_id, const csi_id_t func_id,
 
   check_write_bytes(call_id, fp_MAAPVal, __fp, 1);
 }
+#endif
 
 CILKSAN_API void __csan_isascii(const csi_id_t call_id, const csi_id_t func_id,
                                 unsigned MAAP_count, const call_prop_t prop,
