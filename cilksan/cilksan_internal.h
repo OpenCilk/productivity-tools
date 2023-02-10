@@ -140,18 +140,14 @@ public:
   void do_enter_helper(unsigned num_sync_reg);
   void do_detach();
   void do_detach_continue();
-  void do_loop_begin() {
-    start_new_loop = true;
-  }
+  void do_loop_begin() { start_new_loop = true; }
   void do_loop_iteration_begin(unsigned num_sync_reg);
   void do_loop_iteration_end();
   void do_loop_end(unsigned sync_reg);
   bool in_loop() const {
     return LOOP_FRAME == frame_stack.head()->frame_data.frame_type;
   }
-  bool handle_loop() const {
-    return in_loop() || (true == start_new_loop);
-  }
+  bool handle_loop() const { return in_loop() || start_new_loop; }
   void do_sync(unsigned sync_reg);
   void do_return();
   void do_leave(unsigned sync_reg);
