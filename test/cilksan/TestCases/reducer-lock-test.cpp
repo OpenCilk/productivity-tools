@@ -9,7 +9,7 @@
 #include <pthread.h>
 
 int main() {
-  cilk::opadd_reducer<int> sum;
+  cilk::opadd_reducer<int> sum = 0;
   int rsum = 0;
   int lsum = 0;
   pthread_mutex_t mtex;
