@@ -16,8 +16,8 @@
 using DS_t = DisjointSet_t<call_stack_t>;
 
 class MemoryAccess_t {
-  static constexpr unsigned VERSION_SHIFT = 48;
-  static constexpr unsigned TYPE_SHIFT = 44;
+  static constexpr unsigned VERSION_SHIFT = 8 * (sizeof(uintptr_t) - sizeof(version_t));
+  static constexpr unsigned TYPE_SHIFT = VERSION_SHIFT - 4;
   static constexpr csi_id_t ID_MASK = ((1UL << TYPE_SHIFT) - 1);
   static constexpr csi_id_t TYPE_MASK = ((1UL << VERSION_SHIFT) - 1) & ~ID_MASK;
   static constexpr csi_id_t UNKNOWN_CSI_ACC_ID = UNKNOWN_CSI_ID & ID_MASK;
@@ -112,9 +112,7 @@ public:
       return MAType_t::UNKNOWN;
     return static_cast<MAType_t>((ver_acc_id & TYPE_MASK) >> TYPE_SHIFT);
   }
-  uint16_t getVersion() const {
-    return getVersionFromVerFunc();
-  }
+  version_t getVersion() const { return getVersionFromVerFunc(); }
   AccessLoc_t getLoc() const {
     if (!isValid())
       return AccessLoc_t();

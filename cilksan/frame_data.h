@@ -161,7 +161,7 @@ typedef struct FrameData_t {
     cilksan_assert(nullptr != Iterbag);
     return Iterbag->inc_version();
   }
-  bool check_parallel_iter(const SBag_t *LCA, uint16_t version) const {
+  bool check_parallel_iter(const SBag_t *LCA, version_t version) const {
     if (!is_loop_frame())
       return false;
     return (LCA == Iterbag) && (version < LCA->get_version());
