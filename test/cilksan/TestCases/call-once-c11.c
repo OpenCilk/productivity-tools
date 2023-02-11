@@ -1,5 +1,6 @@
 // RUN: %clang_cilksan -fopencilk -Og %s -o %t
 // RUN: %run %t 2>&1 | FileCheck %s
+// UNSUPPORTED: darwin
 
 #include <cilk/cilk.h>
 #include <stdio.h>
