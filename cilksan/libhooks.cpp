@@ -5166,3 +5166,9 @@ CILKSAN_API void __csan_llvm_reducer_unregister(
   // For race purposes treat this as a read of the leftmost view.
   check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
 }
+
+CILKSAN_API void *__csan_llvm_tapir_magic(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop) {
+  return 0;
+}
