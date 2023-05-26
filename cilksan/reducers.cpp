@@ -144,7 +144,7 @@ hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
         dst_rb.reduce_fn(b.value.view, dst_rb.view);
         free(dst_rb.view);
         tool->mark_free(dst_rb.view);
-        dst_rb.view = b.value.view;
+        dst_bucket->value.view = b.value.view;
       }
     }
   }
