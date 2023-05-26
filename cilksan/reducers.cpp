@@ -10,7 +10,7 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
                                            const csi_id_t func_id,
                                            unsigned MAAP_count,
                                            const call_prop_t prop, void *view,
-                                           void *key, size_t size,
+                                           void *magic, void *key, size_t size,
                                            void *identity_fn, void *reduce_fn) {
   if (!CILKSAN_INITIALIZED || !should_check())
     return view;
@@ -40,10 +40,10 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
 CILKSAN_API void*
 __csan_llvm_hyper_lookup_i64(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
-                             void *view, void *key, size_t size,
+                             void *magic, void *view, void *key, size_t size,
                              void *identity_fn, void *reduce_fn) {
-  return __csan_llvm_hyper_lookup(call_id, func_id, MAAP_count, prop, view, key,
-                                  size, identity_fn, reduce_fn);
+  return __csan_llvm_hyper_lookup(call_id, func_id, MAAP_count, prop, magic,
+                                  view, key, size, identity_fn, reduce_fn);
 }
 
 void CilkSanImpl_t::reduce_local_views() {
