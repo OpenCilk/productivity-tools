@@ -112,11 +112,43 @@ CILKSAN_API void __csan_llvm_masked_load_v4i32_p0v4i32(
       call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
+CILKSAN_API void __csan_llvm_masked_store_v4i32_p0v4i32(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4i32 *val, v4i32 *ptr, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_load_store<v4i32, 4, uint8_t, 0x0f, false>(
+      call_id, MAAP_count, prop, val, ptr, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_load_v4i64_p0v4i64(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4i64 *result, v4i64 *ptr, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_load_store<v4i64, 4, uint8_t, 0x0f, true>(
+      call_id, MAAP_count, prop, result, ptr, alignment, mask);
+}
+
 CILKSAN_API void __csan_llvm_masked_store_v4i64_p0v4i64(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i64 *val, v4i64 *ptr, int32_t alignment,
     uint8_t *mask) {
   generic_masked_load_store<v4i64, 4, uint8_t, 0x0f, false>(
+      call_id, MAAP_count, prop, val, ptr, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_load_v8i32_p0v8i32(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8i32 *result, v8i32 *ptr, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_load_store<v8i32, 8, uint8_t, 0xff, true>(
+      call_id, MAAP_count, prop, result, ptr, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_store_v8i32_p0v8i32(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8i32 *val, v8i32 *ptr, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_load_store<v8i32, 8, uint8_t, 0xff, false>(
       call_id, MAAP_count, prop, val, ptr, alignment, mask);
 }
 
