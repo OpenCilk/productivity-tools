@@ -17,25 +17,29 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR CILKTOOLS_STANDALONE_B
   set(PACKAGE_BUGREPORT "https://github.com/OpenCilk/productivity-tools/issues/")
 endif()
 
-# Add path for custom compiler-rt modules.
+set(LLVM_COMMON_CMAKE_UTILS "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
+
+# Add path for custom cilktools modules.
 list(INSERT CMAKE_MODULE_PATH 0
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules"
+  "${LLVM_COMMON_CMAKE_UTILS}"
+  "${LLVM_COMMON_CMAKE_UTILS}/Modules"
   )
 
-# Require out of source build.
-include(MacroEnsureOutOfSourceBuild)
-MACRO_ENSURE_OUT_OF_SOURCE_BUILD(
-  "${PROJECT_NAME} requires an out of source build. Please create a separate
- build directory and run 'cmake /path/to/${PROJECT_NAME} [options]' there."
-  )
-
+# # Require out of source build.
+# include(MacroEnsureOutOfSourceBuild)
+# MACRO_ENSURE_OUT_OF_SOURCE_BUILD(
+#   "${PROJECT_NAME} requires an out of source build. Please create a separate
+#  build directory and run 'cmake /path/to/${PROJECT_NAME} [options]' there."
+#   )
 if(CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_CFG_RESOLVED_INTDIR "${CMAKE_CFG_INTDIR}/")
 else()
   set(CMAKE_CFG_RESOLVED_INTDIR "")
 endif()
 
+include(SetPlatformToolchainTools)
 include(base-config-ix)
 include(CilktoolsUtils)
 

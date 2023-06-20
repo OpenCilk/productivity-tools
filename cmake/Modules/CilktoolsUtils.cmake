@@ -5,19 +5,11 @@ include(CheckSymbolExists)
 # define a handy helper function for it. The compile flags setting in CMake
 # has serious issues that make its syntax challenging at best.
 function(set_target_compile_flags target)
-  set(argstring "")
-  foreach(arg ${ARGN})
-    set(argstring "${argstring} ${arg}")
-  endforeach()
-  set_property(TARGET ${target} PROPERTY COMPILE_FLAGS "${argstring}")
+  set_property(TARGET ${target} PROPERTY COMPILE_OPTIONS ${ARGN})
 endfunction()
 
 function(set_target_link_flags target)
-  set(argstring "")
-  foreach(arg ${ARGN})
-    set(argstring "${argstring} ${arg}")
-  endforeach()
-  set_property(TARGET ${target} PROPERTY LINK_FLAGS "${argstring}")
+  set_property(TARGET ${target} PROPERTY LINK_OPTIONS ${ARGN})
 endfunction()
 
 # Set the variable var_PYBOOL to True if var holds a true-ish string,
@@ -128,7 +120,9 @@ macro(test_target_arch arch def)
     if(NOT HAS_${arch}_DEF)
       set(CAN_TARGET_${arch} FALSE)
     elseif(TEST_COMPILE_ONLY)
-      try_compile_only(CAN_TARGET_${arch} FLAGS ${TARGET_${arch}_CFLAGS})
+      try_compile_only(CAN_TARGET_${arch}
+                       SOURCE "#include <limits.h>\nint foo(int x, int y) { return x + y; }\n"
+                       FLAGS ${TARGET_${arch}_CFLAGS})
     else()
       set(FLAG_NO_EXCEPTIONS "")
       if(CILKTOOLS_HAS_FNO_EXCEPTIONS_FLAG)
@@ -233,9 +227,19 @@ macro(load_llvm_config)
 
     set(LLVM_BINARY_DIR ${BINARY_DIR} CACHE PATH "Path to LLVM build tree")
     set(LLVM_LIBRARY_DIR ${LIBRARY_DIR} CACHE PATH "Path to llvm/lib")
-    set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
     set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin")
     set(LLVM_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Paths to LLVM headers")
+
+    if (NOT EXISTS "${LLVM_MAIN_SRC_DIR_DEFAULT}")
+      # TODO(dliew): Remove this legacy fallback path.
+      message(WARNING
+        "Consulting llvm-config for the LLVM source path "
+        "as a fallback. This behavior will be removed in the future.")
+      # We don't set `LLVM_MAIN_SRC_DIR` directly to avoid overriding a user
+      # provided CMake cache value.
+      set(LLVM_MAIN_SRC_DIR_DEFAULT "${MAIN_SRC_DIR}")
+      message(STATUS "Using LLVM source path (${LLVM_MAIN_SRC_DIR_DEFAULT}) from llvm-config")
+    endif()
 
     # Detect if we have the LLVMXRay and TestingSupport library installed and
     # available from llvm-config.
@@ -298,12 +302,43 @@ macro(load_llvm_config)
       set(LLVM_CMAKE_PATH "${LLVM_BINARY_DIR_CMAKE_STYLE}/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm")
     endif()
 
-    list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_PATH}")
-    # Get some LLVM variables from LLVMConfig.
-    include("${LLVM_CMAKE_PATH}/LLVMConfig.cmake")
+    set(LLVM_CMAKE_INCLUDE_FILE "${LLVM_CMAKE_DIR}/LLVMConfig.cmake")
+    if (EXISTS "${LLVM_CMAKE_INCLUDE_FILE}")
+      list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+      # Get some LLVM variables from LLVMConfig.
+      include("${LLVM_CMAKE_INCLUDE_FILE}")
+      set(FOUND_LLVM_CMAKE_DIR TRUE)
+    else()
+      set(FOUND_LLVM_CMAKE_DIR FALSE)
+      message(WARNING "LLVM CMake path (${LLVM_CMAKE_INCLUDE_FILE}) reported by llvm-config does not exist")
+    endif()
+    unset(LLVM_CMAKE_INCLUDE_FILE)
 
     set(LLVM_LIBRARY_OUTPUT_INTDIR
       ${LLVM_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
+  endif()
+
+  # Finally set the cache variable now that `llvm-config` has also had a chance
+  # to set `LLVM_MAIN_SRC_DIR_DEFAULT`.
+  set(LLVM_MAIN_SRC_DIR "${LLVM_MAIN_SRC_DIR_DEFAULT}" CACHE PATH "Path to LLVM source tree")
+  message(STATUS "LLVM_MAIN_SRC_DIR: \"${LLVM_MAIN_SRC_DIR}\"")
+  if (NOT EXISTS "${LLVM_MAIN_SRC_DIR}")
+    # TODO(dliew): Make this a hard error
+    message(WARNING "LLVM_MAIN_SRC_DIR (${LLVM_MAIN_SRC_DIR}) does not exist. "
+                    "You can override the inferred path by adding "
+                    "`-DLLVM_MAIN_SRC_DIR=<path_to_llvm_src>` to your CMake invocation "
+                    "where `<path_to_llvm_src>` is the path to the `llvm` directory in "
+                    "the `llvm-project` repo. "
+                    "This will be treated as error in the future.")
+  endif()
+
+  if (NOT FOUND_LLVM_CMAKE_DIR)
+    # This configuration tries to configure without the prescence of `LLVMConfig.cmake`. It is
+    # intended for testing purposes (generating the lit test suites) and will likely not support
+    # a build of the runtimes in compiler-rt.
+    message("LLVM_CMAKE_DIR not found!")
+    # include(CompilerRTMockLLVMCMakeConfig)
+    # compiler_rt_mock_llvm_cmake_config()
   endif()
 endmacro()
 
@@ -314,21 +349,23 @@ macro(construct_cilktools_default_triple)
     endif()
     set(CILKTOOLS_DEFAULT_TARGET_TRIPLE ${CMAKE_C_COMPILER_TARGET})
   else()
-    set(CILKTOOLS_DEFAULT_TARGET_TRIPLE ${TARGET_TRIPLE} CACHE STRING
+    set(CILKTOOLS_DEFAULT_TARGET_TRIPLE ${LLVM_TARGET_TRIPLE} CACHE STRING
           "Default triple for which cilktools runtimes will be built.")
   endif()
 
-  if(DEFINED CILKTOOLS_TEST_TARGET_TRIPLE)
-    # Backwards compatibility: this variable used to be called
-    # CILKTOOLS_TEST_TARGET_TRIPLE.
-    set(CILKTOOLS_DEFAULT_TARGET_TRIPLE ${CILKTOOLS_TEST_TARGET_TRIPLE})
+  string(REPLACE "-" ";" LLVM_TARGET_TRIPLE_LIST ${CILKTOOLS_DEFAULT_TARGET_TRIPLE})
+  list(GET LLVM_TARGET_TRIPLE_LIST 0 CILKTOOLS_DEFAULT_TARGET_ARCH)
+
+  # Map various forms of the architecture names to the canonical forms
+  # (as they are used by clang, see getArchNameForCompilerRTLib).
+  if("${CILKTOOLS_DEFAULT_TARGET_ARCH}" MATCHES "^i.86$")
+    # Android uses i686, but that's remapped at a later stage.
+    set(CILKTOOLS_DEFAULT_TARGET_ARCH "i386")
   endif()
 
-  string(REPLACE "-" ";" TARGET_TRIPLE_LIST ${CILKTOOLS_DEFAULT_TARGET_TRIPLE})
-  list(GET TARGET_TRIPLE_LIST 0 CILKTOOLS_DEFAULT_TARGET_ARCH)
   # Determine if test target triple is specified explicitly, and doesn't match the
   # default.
-  if(NOT CILKTOOLS_DEFAULT_TARGET_TRIPLE STREQUAL TARGET_TRIPLE)
+  if(NOT CILKTOOLS_DEFAULT_TARGET_TRIPLE STREQUAL LLVM_TARGET_TRIPLE)
     set(CILKTOOLS_HAS_EXPLICIT_DEFAULT_TARGET_TRIPLE TRUE)
   else()
     set(CILKTOOLS_HAS_EXPLICIT_DEFAULT_TARGET_TRIPLE FALSE)
@@ -369,6 +406,8 @@ function(get_cilktools_target arch variable)
     set(target "${CILKTOOLS_DEFAULT_TARGET_TRIPLE}")
   elseif(ANDROID AND ${arch} STREQUAL "i386")
     set(target "i686${triple_suffix}")
+  elseif(${arch} STREQUAL "amd64")
+    set(target "x86_64${triple_suffix}")
   else()
     set(target "${arch}${triple_suffix}")
   endif()
