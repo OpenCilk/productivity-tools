@@ -85,6 +85,13 @@ function(add_cilktools_object_libraries name)
       set_target_properties(${libname} PROPERTIES
         OSX_ARCHITECTURES "${LIB_ARCHS_${libname}}")
     endif()
+
+    # Handle the dependence on cheetah specially
+    if ("-fopencilk" IN_LIST LIB_CFLAGS)
+      if (TARGET cheetah OR HAVE_CHEETAH)
+        add_dependencies(${libname} cheetah)
+      endif()
+    endif()
   endforeach()
 endfunction()
 
@@ -385,7 +392,7 @@ function(add_cilktools_runtime name type)
     # Handle the dependence on cheetah specially
     if ("-fopencilk" IN_LIST LIB_CFLAGS OR "-fopencilk" IN_LIST LIB_LINK_FLAGS)
       if (TARGET cheetah OR HAVE_CHEETAH)
-	add_dependencies(${libname} cheetah)
+        add_dependencies(${libname} cheetah)
       endif()
     endif()
   endforeach()
@@ -485,6 +492,12 @@ function(add_cilktools_bitcode name)
     target_compile_options(${libname}_compile PUBLIC "$<$<CONFIG:RELEASE>:${CILKTOOLS_RELEASE_OPTIONS}>")
     set_property(TARGET ${libname}_compile APPEND PROPERTY
       COMPILE_DEFINITIONS ${LIB_DEFS})
+    # Handle the dependence on cheetah specially
+    if ("-fopencilk" IN_LIST LIB_CFLAGS)
+      if (TARGET cheetah OR HAVE_CHEETAH)
+        add_dependencies(${libname}_compile cheetah)
+      endif()
+    endif()
     set(output_file_${libname} lib${output_name_${libname}}.bc)
     add_custom_command(
       OUTPUT ${output_dir_${libname}}/${output_file_${libname}}

@@ -88,7 +88,12 @@ check_cxx_compiler_flag("-Werror -Wnon-virtual-dtor"   CILKTOOLS_HAS_WNON_VIRTUA
 check_cxx_compiler_flag("-Werror -Wvariadic-macros"    CILKTOOLS_HAS_WVARIADIC_MACROS_FLAG)
 check_cxx_compiler_flag("-Werror -Wunused-parameter"   CILKTOOLS_HAS_WUNUSED_PARAMETER_FLAG)
 check_cxx_compiler_flag("-Werror -Wcovered-switch-default" CILKTOOLS_HAS_WCOVERED_SWITCH_DEFAULT_FLAG)
+check_cxx_compiler_flag("-Werror -Wthread-safety" CILKTOOLS_HAS_WTHREAD_SAFETY_FLAG)
+check_cxx_compiler_flag("-Werror -Wthread-safety-reference" CILKTOOLS_HAS_WTHREAD_SAFETY_REFERENCE_FLAG)
+check_cxx_compiler_flag("-Werror -Wthread-safety-beta" CILKTOOLS_HAS_WTHREAD_SAFETY_BETA_FLAG)
 check_cxx_compiler_flag(-Wno-pedantic CILKTOOLS_HAS_WNO_PEDANTIC)
+check_cxx_compiler_flag(-Wno-format CILKTOOLS_HAS_WNO_FORMAT)
+check_cxx_compiler_flag(-Wno-format-pedantic CILKTOOLS_HAS_WNO_FORMAT_PEDANTIC)
 
 check_cxx_compiler_flag(/W4 CILKTOOLS_HAS_W4_FLAG)
 check_cxx_compiler_flag(/WX CILKTOOLS_HAS_WX_FLAG)
