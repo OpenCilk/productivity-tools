@@ -51,7 +51,13 @@ option(CILKTOOLS_BUILD_CILKSCALE "Build Cilkscale" ON)
 mark_as_advanced(CILKTOOLS_BUILD_CILKSCALE)
 
 if (CILKTOOLS_STANDALONE_BUILD)
-  load_llvm_config()
+  set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
+  set(CMAKE_CXX_STANDARD_REQUIRED YES)
+  set(CMAKE_CXX_EXTENSIONS NO)
+
+  if (NOT LLVM_RUNTIMES_BUILD)
+    load_llvm_config()
+  endif()
   if (TARGET intrinsics_gen)
     # Loading the llvm config causes this target to be imported so place it
     # under the appropriate folder in an IDE.
@@ -74,7 +80,7 @@ if (CILKTOOLS_STANDALONE_BUILD)
   endif()
 
   # Ensure that fat libraries are built correctly on Darwin
-  if(CMAKE_HOST_APPLE AND APPLE)
+  if(APPLE)
     include(UseLibtool)
   endif()
 
@@ -103,9 +109,6 @@ if ("${CILKTOOLS_DEFAULT_TARGET_TRIPLE}" MATCHES ".*android.*")
 endif()
 pythonize_bool(ANDROID)
 
-set(ANDROID_NDK_VERSION 18
-    CACHE STRING "Set this to the Android NDK version that you are using")
-
 set(CILKTOOLS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(CILKTOOLS_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -114,8 +117,8 @@ pythonize_bool(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR)
 # We support running instrumented tests when we're not cross compiling
 # and target a UNIX-like system or Windows.
 # We can run tests on Android even when we are cross-compiling.
-if(("${CMAKE_HOST_SYSTEM}" STREQUAL "${CMAKE_SYSTEM}" AND (UNIX OR WIN32)) OR ANDROID
-   OR CILKTOOLS_EMULATOR)
+if(("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "${CMAKE_SYSTEM_NAME}" AND (UNIX OR WIN32))
+   OR ANDROID OR CILKTOOLS_EMULATOR)
   option(CILKTOOLS_CAN_EXECUTE_TESTS "Can we execute instrumented tests" ON)
 else()
   option(CILKTOOLS_CAN_EXECUTE_TESTS "Can we execute instrumented tests" OFF)
@@ -147,73 +150,28 @@ if (APPLE) # Always enable on Apple platforms.
 endif()
 pythonize_bool(CILKTOOLS_INTERCEPT_LIBDISPATCH)
 
-macro(handle_default_cxx_lib var)
-  if (${var} STREQUAL "default")
-    if (APPLE OR CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
-      set(${var}_LIBNAME "libc++")
-      set(${var}_SYSTEM 1)
-    elseif (FUCHSIA)
-      set(${var}_LIBNAME "libc++")
-      set(${var}_INTREE 1)
-    else()
-      set(${var}_LIBNAME "libstdc++")
-      set(${var}_SYSTEM 1)
-    endif()
-  else()
-    set(${var}_LIBNAME "${${var}}")
-    set(${var}_SYSTEM 1)
-  endif()
-endmacro()
-
-# This is either directly the C++ ABI library or the full C++ library
-# which pulls in the ABI transitively.
-set(SANITIZER_CXX_ABI "default" CACHE STRING
-    "Specify C++ ABI library to use.")
-set(CXXABIS none default libstdc++ libc++ libcxxabi)
-set_property(CACHE SANITIZER_CXX_ABI PROPERTY STRINGS ;${CXXABIS})
-handle_default_cxx_lib(SANITIZER_CXX_ABI)
-
-# This needs to be a full C++ library for linking gtest and unit tests.
-set(SANITIZER_TEST_CXX "default" CACHE STRING
-    "Specify C++ library to use for tests.")
-set(CXXLIBS none default libstdc++ libc++)
-set_property(CACHE SANITIZER_TEST_CXX PROPERTY STRINGS ;${CXXLIBS})
-handle_default_cxx_lib(SANITIZER_TEST_CXX)
-
-set(DEFAULT_SANITIZER_USE_STATIC_LLVM_UNWINDER OFF)
-if (FUCHSIA)
-  set(DEFAULT_SANITIZER_USE_STATIC_LLVM_UNWINDER ON)
-elseif (DEFINED LIBUNWIND_ENABLE_SHARED AND NOT LIBUNWIND_ENABLE_SHARED)
-  set(DEFAULT_SANITIZER_USE_STATIC_LLVM_UNWINDER ON)
-endif()
-
-option(SANITIZER_USE_STATIC_LLVM_UNWINDER
-  "Use static LLVM unwinder." ${DEFAULT_SANITIZER_USE_STATIC_LLVM_UNWINDER})
-
-set(DEFAULT_SANITIZER_USE_STATIC_CXX_ABI OFF)
-if (DEFINED LIBCXXABI_ENABLE_SHARED AND NOT LIBCXXABI_ENABLE_SHARED)
-  set(DEFAULT_SANITIZER_USE_STATIC_CXX_ABI ON)
-endif()
-
-option(SANITIZER_USE_STATIC_CXX_ABI
-  "Use static libc++abi." ${DEFAULT_SANITIZER_USE_STATIC_CXX_ABI})
-
-# option(CILKTOOLS_USE_BUILTINS_LIBRARY
-#   "Use cilktools builtins instead of libgcc" ${DEFAULT_CILKTOOLS_USE_BUILTINS_LIBRARY})
-
 include(config-ix)
 
 #================================
 # Setup Compiler Flags
 #================================
 
-append_string_if(CILKTOOLS_HAS_WALL_FLAG -Wall CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+if(MSVC)
+  # Override any existing /W flags with /W4. This is what LLVM does.  Failing to
+  # remove other /W[0-4] flags will result in a warning about overriding a
+  # previous flag.
+  if (CILKTOOLS_HAS_W4_FLAG)
+    string(REGEX REPLACE " /W[0-4]" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    string(REGEX REPLACE " /W[0-4]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    append_string_if(CILKTOOLS_HAS_W4_FLAG /W4 CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+  endif()
+else()
+  append_string_if(CILKTOOLS_HAS_WALL_FLAG -Wall CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+endif()
 if(CILKTOOLS_ENABLE_WERROR)
   append_string_if(CILKTOOLS_HAS_WERROR_FLAG -Werror CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   append_string_if(CILKTOOLS_HAS_WX_FLAG /WX CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
 endif()
-
-append_string_if(CILKTOOLS_HAS_STD_CXX14_FLAG -std=c++14 CMAKE_CXX_FLAGS)
 
 # Provide some common commmandline flags for Sanitizer runtimes.
 append_list_if(CILKTOOLS_HAS_FPIC_FLAG -fPIC SANITIZER_COMMON_CFLAGS)
@@ -231,6 +189,13 @@ endif()
 append_list_if(CILKTOOLS_HAS_FNO_LTO_FLAG -fno-lto SANITIZER_COMMON_CFLAGS)
 
 append_list_if(CILKTOOLS_DEBUG -DSANITIZER_DEBUG=1 SANITIZER_COMMON_CFLAGS)
+
+append_list_if(CILKTOOLS_HAS_WTHREAD_SAFETY_FLAG -Wthread-safety THREAD_SAFETY_FLAGS)
+append_list_if(CILKTOOLS_HAS_WTHREAD_SAFETY_REFERENCE_FLAG -Wthread-safety-reference THREAD_SAFETY_FLAGS)
+append_list_if(CILKTOOLS_HAS_WTHREAD_SAFETY_BETA_FLAG -Wthread-safety-beta THREAD_SAFETY_FLAGS)
+list(APPEND SANITIZER_COMMON_CFLAGS ${THREAD_SAFETY_FLAGS})
+string(REPLACE ";" " " thread_safety_flags_space_sep "${THREAD_SAFETY_FLAGS}")
+string(APPEND CILKTOOLS_TEST_COMPILER_CFLAGS " ${thread_safety_flags_space_sep}")
 
 # Build with optimization, unless we're in debug mode.
 if(CILKTOOLS_DEBUG)
@@ -372,6 +337,7 @@ else()
   endif()
 endif()
 pythonize_bool(CILKTOOLS_HAS_LLD)
+pythonize_bool(CILKTOOLS_TEST_USE_LLD)
 
 include(AddCilktools)
 

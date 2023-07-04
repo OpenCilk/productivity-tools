@@ -22,7 +22,7 @@ set_default("llvm_shlib_dir", "@LLVM_LIBRARY_OUTPUT_INTDIR@")
 set_default("gold_executable", "@GOLD_EXECUTABLE@")
 set_default("clang", "@CILKTOOLS_RESOLVED_TEST_COMPILER@")
 set_default("compiler_id", "@CILKTOOLS_TEST_COMPILER_ID@")
-set_default("python_executable", "@PYTHON_EXECUTABLE@")
+set_default("python_executable", "@Python3_EXECUTABLE@")
 set_default("cilktools_debug", @CILKTOOLS_DEBUG_PYBOOL@)
 set_default("cilktools_intercept_libdispatch", @CILKTOOLS_INTERCEPT_LIBDISPATCH_PYBOOL@)
 set_default("cilktools_libdir", "@CILKTOOLS_RESOLVED_LIBRARY_OUTPUT_DIR@")
@@ -30,16 +30,17 @@ set_default("emulator", "@CILKTOOLS_EMULATOR@")
 set_default("asan_shadow_scale", "@CILKTOOLS_ASAN_SHADOW_SCALE@")
 set_default("apple_platform", "osx")
 set_default("has_lld", @CILKTOOLS_HAS_LLD_PYBOOL@)
-set_default("use_lld", False)
+set_default("can_symbolize", @CAN_SYMBOLIZE@)
+set_default("use_lld", @CILKTOOLS_TEST_USE_LLD_PYBOOL@)
 set_default("use_thinlto", False)
 set_default("use_lto", config.use_thinlto)
-set_default("use_newpm", False)
 set_default("android", @ANDROID_PYBOOL@)
 set_default("android_ndk_version", @ANDROID_NDK_VERSION@)
 set_default("android_serial", "@ANDROID_SERIAL_FOR_TESTING@")
 set_default("android_files_to_push", [])
-set_default("have_rpc_xdr_h", @HAVE_RPC_XDR_H@)
+#set_default("have_rpc_xdr_h", @HAVE_RPC_XDR_H@)
 set_default("expensive_checks", @LLVM_ENABLE_EXPENSIVE_CHECKS_PYBOOL@)
+#set_default("test_standalone_build_libs", @CILKTOOLS_TEST_STANDALONE_BUILD_LIBS_PYBOOL@)
 config.available_features.add('target-is-%s' % config.target_arch)
 
 if config.enable_per_target_runtime_dir:
@@ -47,18 +48,14 @@ if config.enable_per_target_runtime_dir:
 else:
   set_default("target_suffix", "-%s" % config.target_arch)
 
-set_default("have_zlib", "@HAVE_LIBZ@")
+set_default("have_zlib", "@LLVM_ENABLE_ZLIB@")
 set_default("libcxx_used", "@LLVM_LIBCXX_USED@")
 
 # LLVM tools dir can be passed in lit parameters, so try to
 # apply substitution.
-try:
-  config.llvm_tools_dir = config.llvm_tools_dir % lit_config.params
-  config.clang = config.clang % lit_config.params
-  config.cilktools_libdir = config.cilktools_libdir % lit_config.params
-except KeyError as e:
-  key, = e.args
-  lit_config.fatal("unable to find %r parameter, use '--param=%s=VALUE'" % (key, key))
+config.llvm_tools_dir = lit_config.substitute(config.llvm_tools_dir)
+config.clang = lit_config.substitute(config.clang)
+config.cilktools_libdir = lit_config.substitute(config.cilktools_libdir)
 
 if not os.path.exists(config.clang):
   lit_config.fatal("Can't find compiler on path %r" % config.clang)

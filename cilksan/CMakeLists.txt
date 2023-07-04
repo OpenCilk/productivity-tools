@@ -21,6 +21,7 @@ include_directories(${CILKTOOLS_SOURCE_DIR}/include)
 
 set(CILKSAN_CFLAGS ${SANITIZER_COMMON_CFLAGS})
 append_list_if(CILKTOOLS_HAS_STD_CXX11_FLAG -std=c++11 CILKSAN_CFLAGS)
+append_list_if(CILKTOOLS_HAS_CILK -fopencilk CILKSAN_CFLAGS)
 append_list_if(CILKTOOLS_HAS_FNO_EXCEPTIONS_FLAG -fno-exceptions CILKSAN_CFLAGS)
 append_list_if(CILKTOOLS_HAS_FDEBUG_DEFAULT_VERSION_EQ_4_FLAG
   -fdebug-default-version=4 CILKSAN_CFLAGS)

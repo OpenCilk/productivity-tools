@@ -5,15 +5,17 @@
 
 include(CheckIncludeFile)
 include(CheckCXXSourceCompiles)
-include(TestBigEndian)
+include(GNUInstallDirs)
+include(ExtendPath)
+include(CilktoolsDarwinUtils)
 
 check_include_file(unwind.h HAVE_UNWIND_H)
 
-# Used by sanitizer_common and tests.
-check_include_file(rpc/xdr.h HAVE_RPC_XDR_H)
-if (NOT HAVE_RPC_XDR_H)
-  set(HAVE_RPC_XDR_H 0)
-endif()
+# # Used by sanitizer_common and tests.
+# check_include_file(rpc/xdr.h HAVE_RPC_XDR_H)
+# if (NOT HAVE_RPC_XDR_H)
+#   set(HAVE_RPC_XDR_H 0)
+# endif()
 
 # Top level target used to build all cilktools libraries.
 add_custom_target(cilktools ALL)
@@ -38,12 +40,12 @@ if (LLVM_TREE_AVAILABLE)
   # Compute the Clang version from the LLVM version.
   # FIXME: We should be able to reuse CLANG_VERSION variable calculated
   #        in Clang cmake files, instead of copying the rules here.
-  string(REGEX MATCH "[0-9]+\\.[0-9]+(\\.[0-9]+)?" CLANG_VERSION
+  string(REGEX MATCH "[0-9]+" CLANG_VERSION_MAJOR
          ${PACKAGE_VERSION})
   # Setup the paths where cilktools runtimes and headers should be stored.
-  set(CILKTOOLS_OUTPUT_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION})
+  set(CILKTOOLS_OUTPUT_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION_MAJOR})
   set(CILKTOOLS_EXEC_OUTPUT_DIR ${LLVM_RUNTIME_OUTPUT_INTDIR})
-  set(CILKTOOLS_INSTALL_PATH lib${LLVM_LIBDIR_SUFFIX}/clang/${CLANG_VERSION})
+  set(CILKTOOLS_INSTALL_PATH lib${LLVM_LIBDIR_SUFFIX}/clang/${CLANG_VERSION_MAJOR})
   option(CILKTOOLS_INCLUDE_TESTS "Generate and build cilktools unit tests."
          ${LLVM_INCLUDE_TESTS})
   option(CILKTOOLS_ENABLE_WERROR "Fail and stop if warning is triggered"
@@ -90,16 +92,27 @@ if(NOT DEFINED CILKTOOLS_OS_DIR)
   string(TOLOWER ${CMAKE_SYSTEM_NAME} CILKTOOLS_OS_DIR)
 endif()
 if(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
-  set(CILKTOOLS_LIBRARY_OUTPUT_DIR
-    ${CILKTOOLS_OUTPUT_DIR})
-  set(CILKTOOLS_LIBRARY_INSTALL_DIR
-    ${CILKTOOLS_INSTALL_PATH})
+  set(CILKTOOLS_OUTPUT_LIBRARY_DIR
+    ${CILKTOOLS_OUTPUT_DIR}/lib)
+  extend_path(default_install_path "${CILKTOOLS_INSTALL_PATH}" lib)
+  set(CILKTOOLS_INSTALL_LIBRARY_DIR "${default_install_path}" CACHE PATH
+    "Path where built cilktools libraries should be installed.")
 else(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR)
-  set(CILKTOOLS_LIBRARY_OUTPUT_DIR
+  set(CILKTOOLS_OUTPUT_LIBRARY_DIR
     ${CILKTOOLS_OUTPUT_DIR}/lib/${CILKTOOLS_OS_DIR})
-  set(CILKTOOLS_LIBRARY_INSTALL_DIR
-    ${CILKTOOLS_INSTALL_PATH}/lib/${CILKTOOLS_OS_DIR})
+  extend_path(default_install_path "${CILKTOOLS_INSTALL_PATH}" "lib/${CILKTOOLS_OS_DIR}")
+  set(CILKTOOLS_INSTALL_LIBRARY_DIR "${default_install_path}" CACHE PATH
+    "Path where built cilktools libraries should be installed.")
 endif()
+extend_path(default_install_path "${CILKTOOLS_INSTALL_PATH}" "${CMAKE_INSTALL_BINDIR}")
+set(CILKTOOLS_INSTALL_BINARY_DIR "${default_install_path}" CACHE PATH
+  "Path where built cilktools executables should be installed.")
+extend_path(default_install_path "${CILKTOOLS_INSTALL_PATH}" "${CMAKE_INSTALL_INCLUDEDIR}")
+set(CILKTOOLS_INSTALL_INCLUDE_DIR "${default_install_path}" CACHE PATH
+  "Path where cilktools headers should be installed.")
+extend_path(default_install_path "${CILKTOOLS_INSTALL_PATH}" "${CMAKE_INSTALL_DATADIR}")
+set(CILKTOOLS_INSTALL_DATA_DIR "${default_install_path}" CACHE PATH
+  "Path where cilktools data files should be installed.")
 
 if(APPLE)
   # On Darwin if /usr/include/c++ doesn't exist, the user probably has Xcode but

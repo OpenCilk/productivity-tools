@@ -402,13 +402,36 @@ if(APPLE)
     CILKTOOLS_COMMON_SUPPORTED_ARCH)
 
 else()
-  # for filter_available_targets
-  include(CilktoolsUtils)
-
   filter_available_targets(CSI_SUPPORTED_ARCH ${ALL_CSI_SUPPORTED_ARCH})
   filter_available_targets(CILKSAN_SUPPORTED_ARCH ${ALL_CILKSAN_SUPPORTED_ARCH})
   filter_available_targets(CILKSCALE_SUPPORTED_ARCH ${ALL_CILKSCALE_SUPPORTED_ARCH})
 endif()
+
+if (MSVC)
+  # Allow setting clang-cl's /winsysroot flag.
+  set(LLVM_WINSYSROOT "" CACHE STRING
+    "If set, argument to clang-cl's /winsysroot")
+
+  if (LLVM_WINSYSROOT)
+    set(MSVC_DIA_SDK_DIR "${LLVM_WINSYSROOT}/DIA SDK" CACHE PATH
+        "Path to the DIA SDK")
+  else()
+    set(MSVC_DIA_SDK_DIR "$ENV{VSINSTALLDIR}DIA SDK" CACHE PATH
+        "Path to the DIA SDK")
+  endif()
+
+  # See if the DIA SDK is available and usable.
+  if (IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
+    set(CAN_SYMBOLIZE 1)
+  else()
+    set(CAN_SYMBOLIZE 0)
+  endif()
+else()
+  set(CAN_SYMBOLIZE 1)
+endif()
+
+find_program(GNU_LD_EXECUTABLE NAMES ${LLVM_DEFAULT_TARGET_TRIPLE}-ld.bfd ld.bfd DOC "GNU ld")
+find_program(GOLD_EXECUTABLE NAMES ${LLVM_DEFAULT_TARGET_TRIPLE}-ld.gold ld.gold DOC "GNU gold")
 
 if(CILKTOOLS_SUPPORTED_ARCH)
   list(REMOVE_DUPLICATES CILKTOOLS_SUPPORTED_ARCH)

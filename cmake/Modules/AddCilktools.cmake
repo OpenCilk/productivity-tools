@@ -361,7 +361,7 @@ function(add_cilktools_runtime name type)
           add_custom_command(TARGET ${libname}
             POST_BUILD
             COMMAND codesign --sign - $<TARGET_FILE:${libname}>
-            WORKING_DIRECTORY ${CILKTOOLS_LIBRARY_OUTPUT_DIR}
+            WORKING_DIRECTORY ${CILKTOOLS_OUTPUT_LIBRARY_DIR}
           )
         endif()
       endif()
