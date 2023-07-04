@@ -10,8 +10,4 @@ foreach (file ${files})
 endforeach (file)
 
 add_custom_target(cilkscale-vis DEPENDS ${files})
-if(NOT LLVM_ENABLE_IDE)
-  add_llvm_install_targets("install-cilkscale-vis"
-                           DEPENDS cilkscale-vis
-                           COMPONENT cilkscale-vis)
-endif()
+add_cilktools_install_targets(cilkscale-vis)

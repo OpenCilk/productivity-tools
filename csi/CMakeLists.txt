@@ -3,7 +3,6 @@
 add_custom_target(csi)
 
 set(CSI_RTL_CFLAGS ${SANITIZER_COMMON_CFLAGS})
-append_list_if(CILKTOOLS_HAS_STD_C11_FLAG -std=c11 CSI_RTL_CFLAGS)
 append_rtti_flag(OFF CSI_RTL_CFLAGS)
 
 include_directories(${CILKTOOLS_SOURCE_DIR}/include)

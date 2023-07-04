@@ -20,7 +20,6 @@ set(CILKSAN_RR_FILES
 include_directories(${CILKTOOLS_SOURCE_DIR}/include)
 
 set(CILKSAN_CFLAGS ${SANITIZER_COMMON_CFLAGS})
-append_list_if(CILKTOOLS_HAS_STD_CXX11_FLAG -std=c++11 CILKSAN_CFLAGS)
 append_list_if(CILKTOOLS_HAS_CILK -fopencilk CILKSAN_CFLAGS)
 append_list_if(CILKTOOLS_HAS_FNO_EXCEPTIONS_FLAG -fno-exceptions CILKSAN_CFLAGS)
 append_list_if(CILKTOOLS_HAS_FDEBUG_DEFAULT_VERSION_EQ_4_FLAG
@@ -162,8 +161,4 @@ foreach (file ${CILKSAN_RR_FILES})
 endforeach (file)
 
 add_custom_target(cilksan-rr DEPENDS ${CILKSAN_RR_FILES})
-if(NOT LLVM_ENABLE_IDE)
-  add_llvm_install_targets("install-cilksan-rr"
-                           DEPENDS cilksan-rr
-                           COMPONENT cilksan-rr)
-endif()
+add_cilktools_install_targets(cilksan-rr PARENT_TARGET cilksan)

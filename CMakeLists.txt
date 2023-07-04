@@ -91,10 +91,10 @@ if (CILKTOOLS_STANDALONE_BUILD)
   endif()
   set(LLVM_LIT_ARGS "${LIT_ARGS_DEFAULT}" CACHE STRING "Default options for lit")
   set(LLVM_LIT_OUTPUT_DIR "${CILKTOOLS_EXEC_OUTPUT_DIR}")
-
-  # Define llvm-link path
-  set(LLVM_LINK_PATH "${LLVM_TOOLS_BINARY_DIR}/llvm-link")
 endif()
+
+# Get llvm-link tool
+find_program( LLVM_LINK llvm-link PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH )
 
 construct_cilktools_default_triple()
 if ("${CILKTOOLS_DEFAULT_TARGET_TRIPLE}" MATCHES ".*hf$")

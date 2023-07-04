@@ -239,7 +239,7 @@ function(get_cilktools_root_source_dir ROOT_DIR_VAR)
 
   # Sanity check: Make sure we can locate the current source file via the
   # computed path.
-  set(PATH_TO_CURRENT_FILE "${ROOT_DIR}/cmake/Modules/CompilerRTUtils.cmake")
+  set(PATH_TO_CURRENT_FILE "${ROOT_DIR}/cmake/Modules/CilktoolsUtils.cmake")
   if (NOT EXISTS "${PATH_TO_CURRENT_FILE}")
     message(FATAL_ERROR "Could not find \"${PATH_TO_CURRENT_FILE}\"")
   endif()
@@ -273,7 +273,7 @@ macro(load_llvm_config)
 
   find_package(LLVM HINTS "${LLVM_CMAKE_DIR}")
   if (NOT LLVM_FOUND)
-     message(WARNING "UNSUPPORTED COMPILER-RT CONFIGURATION DETECTED: "
+     message(WARNING "UNSUPPORTED CILKTOOLS CONFIGURATION DETECTED: "
                      "LLVM cmake package not found.\n"
                      "Reconfigure with -DLLVM_CMAKE_DIR=/path/to/llvm.")
   else()
@@ -319,7 +319,7 @@ macro(load_llvm_config)
     # intended for testing purposes (generating the lit test suites) and will likely not support
     # a build of the runtimes in compiler-rt.
     include(CilktoolsMockLLVMCMakeConfig)
-    # cilktools_mock_llvm_cmake_config()
+    cilktools_mock_llvm_cmake_config()
   endif()
 
 endmacro()
