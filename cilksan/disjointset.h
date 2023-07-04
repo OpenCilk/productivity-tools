@@ -223,6 +223,7 @@ private:
     this->_parent_or_bag.setParent(that);
     that->inc_ref_count();
 
+    (void)old_parent;
     cilksan_level_assert(DEBUG_DISJOINTSET, !old_parent.isParent());
 
     WHEN_DISJOINTSET_DEBUG(
