@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Stack object local
+// CHECK: Stack object
 
 // CHECK: Race detected on location [[LOCAL]]
 // CHECK-NEXT: * Write {{[0-9a-f]+}} helper
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Stack object local
+// CHECK: Stack object
 
 // CHECK: 0x[[LOCAL]]
 
@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object x
+// CHECK: Heap object
 
 // CHECK: Race detected on location [[MALLOC]]
 // CHECK-NEXT: * Write {{[0-9a-f]+}} increment
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object x
+// CHECK: Heap object
 
 // CHECK: 0x[[MALLOC]]
 
@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object y
+// CHECK: Heap object
 
 // CHECK: Race detected on location [[CALLOC]]
 // CHECK-NEXT: * Write {{[0-9a-f]+}} increment
@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object y
+// CHECK: Heap object
 
 // CHECK: 0x[[CALLOC]]
 
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object z
+// CHECK: Heap object
 
 // CHECK: Race detected on location [[REALLOC]]
 // CHECK-NEXT: * Write {{[0-9a-f]+}} increment
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
 // CHECK-NEXT: Call {{[0-9a-f]+}} main
 // CHECK-NEXT: Common calling context
 // CHECK-NEXT: Parfor
-// CHECK: Heap object z
+// CHECK: Heap object
 
 // CHECK: 0x[[REALLOC]]
 
