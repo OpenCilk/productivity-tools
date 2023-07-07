@@ -2514,6 +2514,18 @@ CILKSAN_API void __csan_lstat(const csi_id_t call_id, const csi_id_t func_id,
   check_write_bytes(call_id, buf_MAAPVal, buf, sizeof(struct stat));
 }
 
+CILKSAN_API void __csan_malloc(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               void *result, size_t size) {
+  START_HOOK(call_id);
+
+  if (MAAP_count > 0) {
+    MAAPs.pop();
+  }
+
+  __cilksan_record_alloc(result, size);
+}
+
 CILKSAN_API void __csan_memalign(const csi_id_t call_id, const csi_id_t func_id,
                                  unsigned MAAP_count, const call_prop_t prop,
                                  void *result, size_t boundary, size_t size) {
