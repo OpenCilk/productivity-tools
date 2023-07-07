@@ -122,26 +122,14 @@ else:
 config.available_features.add(compiler_id)
 
 # When LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=on, the initial value of
-# config.compiler_rt_libdir (COMPILER_RT_RESOLVED_LIBRARY_OUTPUT_DIR) has the
+# config.cilktools_libdir (CILKTOOLS_RESOLVED_LIBRARY_OUTPUT_DIR) has the
 # triple as the trailing path component. The value is incorrect for -m32/-m64.
-# Adjust config.compiler_rt accordingly.
+# Adjust config.cilktools accordingly.
 if config.enable_per_target_runtime_dir:
     if '-m32' in shlex.split(config.target_cflags):
-        config.compiler_rt_libdir = re.sub(r'/x86_64(?=-[^/]+$)', '/i386', config.compiler_rt_libdir)
+        config.cilktools_libdir = re.sub(r'/x86_64(?=-[^/]+$)', '/i386', config.cilktools_libdir)
     elif '-m64' in shlex.split(config.target_cflags):
-        config.compiler_rt_libdir = re.sub(r'/i386(?=-[^/]+$)', '/x86_64', config.compiler_rt_libdir)
-
-# BFD linker in 64-bit android toolchains fails to find libc++_shared.so, which
-# is a transitive shared library dependency (via asan runtime).
-if config.android:
-  # Prepend the flag so that it can be overridden.
-  config.target_cflags = "-pie -fuse-ld=gold " + config.target_cflags
-  if config.android_ndk_version < 19:
-    # With a new compiler and NDK < r19 this flag ends up meaning "link against
-    # libc++", but NDK r19 makes this mean "link against the stub libstdc++ that
-    # just contains a handful of ABI functions", which makes most C++ code fail
-    # to link. In r19 and later we just use the default which is libc++.
-    config.cxx_mode_flags.append('-stdlib=libstdc++')
+        config.cilktools_libdir = re.sub(r'/i386(?=-[^/]+$)', '/x86_64', config.cilktools_libdir)
 
 # Ask the compiler for the path to libraries it is going to use. If this
 # doesn't match config.cilktools_libdir then it means we might be testing the
