@@ -60,19 +60,20 @@ class hyper_table {
     return i;
   }
 
-  static inline bool continue_search(index_t tgt, index_t hash, index_t i,
-                                     uintptr_t tgt_key, uintptr_t key) {
-    // Continue the search if the current hash is smaller than the target or if
-    // the hashes match and the current key is smaller than the target key.
-    //
-    // It's possible that the current hash is larger than the target because it
-    // belongs to a run that wraps from the end of the table to the beginning.
-    // We want to treat such hashes as smaller than the target, unless the
-    // target itself is part of such a wrapping run.  To detect such cases,
-    // check that the target is smaller than the current index i --- meaning the
-    // search has not wrapped --- and the current hash is larger than i ---
-    // meaning the current hash is part of a wrapped run.
-    return hash <= tgt || (tgt < i && hash > i);
+  static inline bool continue_search(index_t tgt, index_t hash,
+                                     index_t init_hash) {
+    // NOTE: index_t must be unsigned for this check to work.
+    index_t norm_tgt = tgt - init_hash;
+    index_t norm_hash = hash - init_hash;
+    return norm_tgt >= norm_hash;
+  }
+
+  static inline bool stop_insert_scan(index_t tgt, index_t hash,
+                                      index_t init_hash) {
+    // NOTE: index_t must be unsigned for this check to work.
+    index_t norm_tgt = tgt - init_hash;
+    index_t norm_hash = hash - init_hash;
+    return norm_tgt <= norm_hash;
   }
 
   // Constant used to determine the target maximum load factor.  The table will
@@ -114,8 +115,9 @@ class hyper_table {
       if (tombstone_idx == 2 * LOAD_FACTOR_CONSTANT) {
         buckets[i].make_tombstone();
         tombstone_idx -= 2 * LOAD_FACTOR_CONSTANT;
-      } else
+      } else {
         ++tombstone_idx;
+      }
     }
     return buckets;
   }
@@ -145,39 +147,26 @@ class hyper_table {
     return buckets;
   }
 
-public:
-  index_t capacity = MIN_CAPACITY;
-  int32_t occupancy = 0;
-  int32_t ins_rm_count = 0;
-  bucket *buckets = nullptr;
+  bucket *find_linear(uintptr_t key) const {
+    // Scan the array backwards, since inserts add new entries to
+    // the end of the array, and we anticipate that the program
+    // will exhibit locality of reference.
+    for (int32_t i = occupancy - 1; i >= 0; --i)
+      if (buckets[i].key == key)
+        return &buckets[i];
 
-  hyper_table() { buckets = bucket_array_create(capacity); }
-  ~hyper_table() { delete[] buckets; }
+    return nullptr;
+  }
 
-  // Returns a pointer to the bucket associated with key, if it exists, or
-  // nullptr if no bucket is associated with key.
-  bucket *find(uintptr_t key) const {
+  bucket *find_hash(uintptr_t key) const {
     int32_t capacity = this->capacity;
-    if (capacity < MIN_HT_CAPACITY) {
-      // If the table is small enough, just scan the array.
-      struct bucket *buckets = this->buckets;
-      int32_t occupancy = this->occupancy;
-
-      // Scan the array backwards, since inserts add new entries to the end of
-      // the array, and we anticipate that the program will exhibit locality of
-      // reference.
-      for (int32_t i = occupancy - 1; i >= 0; --i)
-        if (buckets[i].key == key)
-          return &buckets[i];
-
-      return nullptr;
-    }
 
     // Target hash
     index_t tgt = get_table_entry(capacity, key);
-    struct bucket *buckets = this->buckets;
+    bucket *buckets = this->buckets;
     // Start the search at the target hash
     index_t i = tgt;
+    index_t init_hash = (index_t)(-1);
     do {
       uintptr_t curr_key = buckets[i].key;
       // If we find the key, return that bucket.
@@ -195,21 +184,69 @@ public:
         continue;
       }
 
-      // Otherwise we have another valid key that does not match.  Compare the
-      // hashes to decide whether or not to continue the search.
-      index_t curr_hash = get_table_entry(capacity, curr_key);
-      if (continue_search(tgt, curr_hash, i, key, curr_key)) {
+      // Otherwise we have another valid key that does not match.
+      // Record this hash for future search steps.
+      init_hash = get_table_entry(capacity, curr_key);
+      if ((tgt > i && i >= init_hash) ||
+          (tgt < init_hash && ((tgt > i) == (init_hash > i)))) {
+        // The search will stop at init_hash anyway, so return early.
+        return nullptr;
+      }
+      break;
+    } while (i != tgt);
+
+    do {
+      uintptr_t curr_key = buckets[i].key;
+      // If we find the key, return that bucket.
+      // TODO: Consider moving this bucket to the front of the run.
+      if (key == curr_key)
+        return &buckets[i];
+
+      // If we find an empty entry, the search failed.
+      if (is_empty(curr_key))
+        return nullptr;
+
+      // If we find a tombstone, continue the search.
+      if (is_tombstone(curr_key)) {
         i = inc_index(i, capacity);
         continue;
       }
 
-      // If none of the above cases match, then the search failed to find the
-      // key.
+      // Otherwise we have another valid key that does not match.
+      // Compare the hashes to decide whether or not to continue the
+      // search.
+      index_t curr_hash = get_table_entry(capacity, curr_key);
+      if (continue_search(tgt, curr_hash, init_hash)) {
+        i = inc_index(i, capacity);
+        continue;
+      }
+
+      // If none of the above cases match, then the search failed to
+      // find the key.
       return nullptr;
     } while (i != tgt);
 
     // The search failed to find the key.
-    return NULL;
+    return nullptr;
+  }
+
+public:
+  index_t capacity = MIN_CAPACITY;
+  int32_t occupancy = 0;
+  int32_t ins_rm_count = 0;
+  bucket *buckets = nullptr;
+
+  hyper_table() { buckets = bucket_array_create(capacity); }
+  ~hyper_table() { delete[] buckets; }
+
+  // Returns a pointer to the bucket associated with key, if it exists, or
+  // nullptr if no bucket is associated with key.
+  bucket *find(uintptr_t key) const {
+    if (capacity < MIN_HT_CAPACITY) {
+        return find_linear(key);
+    } else {
+        return find_hash(key);
+    }
   }
 
   // Insert the given bucket into the table.  Might move other buckets around
@@ -263,6 +300,101 @@ public:
 
     // Search for the place to insert b.
     index_t i = tgt;
+
+    // Searching for an appropriate insertion point requires handling four
+    // conditions based on tgt --- the target index of the item being inserted
+    // --- i --- the current index in the hash table being examined in the
+    // search --- and hash --- the target index of the item at index i.
+    //
+    // Generally speaking, items that hash to the same index appear next to each
+    // other in the table, and items that hash to adjacent indices (modulo the
+    // table's capacity) appear next to each other in sorted order based on the
+    // indices they hash to.  These invariants hold with the exception that
+    // tombstones can exist between items in the table that would otherwise be
+    // adjacent.  Let a _run_ be a sequence of hash values for consecutive valid
+    // entries in the table (modulo the table's capacity).
+    //
+    // The search must accommodate the following 4 conditions:
+    // - Non-wrapped search (NS): tgt <= i
+    // - Wrapped search (WS):     tgt > i
+    // - Non-wrapped run (NR):    hash <= i
+    // - Wrapped run (WR):        hash > i
+    //
+    // These conditions lead to 4 cases:
+    // - NS+NR: hash <= tgt <= i:
+    //   Common case.  Search terminates when hash > tgt.
+    // - WS+WR: i < hash <= tgt:
+    //   Like NS+NR, search terminates when hash > tgt.
+    // - NS+WR: tgt <= i < hash:
+    //   The search needs to treat tgt as larger than hash.  Given init --- the
+    //   hash of the first non-tombstone encountered --- comparing shifted
+    //   values of tgt and hash --- specifically, X-init+2^k mod 2^k, where X
+    //   \in {tgt, hash} --- causes tgt to become large and allows the search to
+    //   terminate when shifted hash > shifted tgt.
+    // - WS+NR: hash <= i < tgt:
+    //   The search needs to stop search before wrapping and treat hash as
+    //   larger than tgt.
+    //   Given init, computing on shifted values of tgt and hash --- i.e.,
+    //   X-init+2^k mod 2^k where X \in {tgt, hash} --- causes hash to become
+    //   large and allows the search to terminate when shifted hash > shifted
+    //   tgt.
+
+    // Probe to find either a place to insert b or another valid entry in the
+    // hash table, whose hash is then stored in init_hash.
+    index_t init_hash = (index_t)(-1);
+    do {
+      uintptr_t curr_key = buckets[i].key;
+      // If we find the key, overwrite that bucket.
+      // TODO: Reconsider what we do in this case.
+      if (b.key == curr_key) {
+        buckets[i].value = b.value;
+        return true;
+      }
+
+      // If we find an empty entry, insert b there.
+      if (is_empty(curr_key)) {
+        buckets[i] = b;
+        ++this->occupancy;
+        ++this->ins_rm_count;
+        return true;
+      }
+
+      if (is_tombstone(curr_key)) {
+        // Check whether the next entry is valid.
+        index_t next_i = inc_index(i, capacity);
+        uintptr_t next_key = buckets[next_i].key;
+        if (is_valid(next_key)) {
+          // Record the hash of the first valid entry found and exit the loop.
+          init_hash = get_table_entry(capacity, next_key);
+          // Check if the search can be terminated early, either because
+          // init_hash == tgt, or we're in the WS+NR case, or we're terminating
+          // the search in the NS+NR or WS+WR cases.
+          if ((tgt == init_hash) || (tgt > next_i && next_i >= init_hash) ||
+              (tgt < init_hash && ((tgt > next_i) == (init_hash > next_i)))) {
+            // The hash at the end of this run of tombstones would terminate the
+            // search.  Because there are only tombstones between tgt and
+            // next_i, inserting b at tgt is safe.
+            buckets[tgt] = b;
+            ++this->occupancy;
+            ++this->ins_rm_count;
+            return true;
+          }
+          break;
+        }
+        // We found a tombstone followed by an invalid entry (tombstone or
+        // empty).  Continue searching.
+        i = next_i;
+        continue;
+      }
+
+      // Record the hash of the first valid entry found and exit the loop.
+      init_hash = get_table_entry(capacity, curr_key);
+      break;
+
+    } while (i != tgt);
+    assert(init_hash != (index_t)(-1));
+
+    // Use init_hash to continue probing to find a place to insert b.
     do {
       uintptr_t curr_key = buckets[i].key;
       // If we find the key, overwrite that bucket.
@@ -283,39 +415,42 @@ public:
       // If we find a tombstone, check whether to insert b here, and finish the
       // insert if so.
       if (is_tombstone(curr_key)) {
-        // Check that the search would not continue through the next index.
+        index_t current_tomb = i;
+        // Scan all consecutive tombstones from i.
         index_t next_i = inc_index(i, capacity);
-        index_t next_key = buckets[next_i].key;
-        if (is_empty(next_key)) {
-          // If the next entry is empty, then the search would stop.  Go ahead
-          // and insert the bucket.
-          buckets[i] = b;
-          ++this->occupancy;
-          ++this->ins_rm_count;
-          return true;
-        } else if (is_tombstone(next_key)) {
-          // If the next entry is a tombstone, then the search would continue.
-          i = next_i;
-          continue;
+        uintptr_t tomb_end = buckets[next_i].key;
+        while (is_tombstone(tomb_end)) {
+          next_i = inc_index(next_i, capacity);
+          tomb_end = buckets[next_i].key;
         }
-        index_t next_hash = get_table_entry(capacity, next_key);
-        if (!continue_search(tgt, next_hash, next_i, b.key, next_key)) {
-          // This location is appropriate for inserting the bucket.
-          buckets[i] = b;
+        // If the next entry is empty, then the search would stop.  It's safe to
+        // insert the bucket at the tombstone.
+        if (is_empty(tomb_end)) {
+          buckets[current_tomb] = b;
           ++this->occupancy;
           ++this->ins_rm_count;
           return true;
         }
-        // This location is not appropriate for this bucket.  Continue the
-        // search.
-        i = next_i;
+        // Check if the hash of the element at the end of this run of tombstones
+        // would terminate the search.
+        index_t tomb_end_hash = get_table_entry(capacity, tomb_end);
+        if (stop_insert_scan(tgt, tomb_end_hash, init_hash)) {
+          // It's safe to insert the element at the current tombstone.
+          buckets[current_tomb] = b;
+          ++this->occupancy;
+          ++this->ins_rm_count;
+          return true;
+        }
+        // None of the locations among these consecutive tombstones are
+        // appropriate for this bucket.  Continue the search.
+        i = inc_index(next_i, capacity);
         continue;
       }
 
       // Otherwise we have another valid key that does not match.  Compare the
       // hashes to decide whether or not to continue the search.
       index_t curr_hash = get_table_entry(capacity, curr_key);
-      if (continue_search(tgt, curr_hash, i, b.key, curr_key)) {
+      if (continue_search(tgt, curr_hash, init_hash)) {
         i = inc_index(i, capacity);
         continue;
       }
@@ -338,7 +473,7 @@ public:
       }
 
       // Swap b with the current bucket.
-      struct bucket tmp = buckets[i];
+      bucket tmp = buckets[i];
       buckets[i] = b;
       b = tmp;
 
@@ -355,7 +490,7 @@ public:
   bool remove(uintptr_t key) {
     if (this->capacity < MIN_HT_CAPACITY) {
       // If the table is small enough, just scan the array.
-      struct bucket *buckets = this->buckets;
+      bucket *buckets = this->buckets;
       int32_t occupancy = this->occupancy;
 
       for (int32_t i = 0; i < occupancy; ++i) {
@@ -364,9 +499,11 @@ public:
             // Set this entry's key to empty.  This code is here primarily to
             // handle the case where occupancy == 1.
             buckets[i].key = KEY_EMPTY;
-          else
+          else {
             // Remove this entry by swapping it with the last entry.
             buckets[i] = buckets[occupancy - 1];
+            buckets[occupancy - 1].key = KEY_EMPTY;
+          }
           // Decrement the occupancy.
           --this->occupancy;
           return true;
@@ -378,8 +515,8 @@ public:
     // Find the key in the table.
     bucket *entry = find(key);
 
-    // If entry is NULL, the search did not find the key.
-    if (NULL == entry)
+    // If entry is nullptr, the search did not find the key.
+    if (nullptr == entry)
       return false;
 
     // The search found the key and returned a pointer to the entry.  Replace

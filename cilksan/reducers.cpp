@@ -95,12 +95,20 @@ hyper_table *
 hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
                                     hyper_table *__restrict__ left,
                                     hyper_table *__restrict__ right) {
-  // In the trivial case of an empty hyper_table, return the other
-  // hyper_table.
-  if (!left || left->occupancy == 0)
+  DBG_TRACE(REDUCER, "merge_two_hyper_tables: %p, %p\n", left, right);
+  // In the trivial case of an empty hyper_table, return the other hyper_table.
+  if (!left)
     return right;
-  if (!right || right->occupancy == 0)
+  if (!right)
     return left;
+  if (left->occupancy == 0) {
+    delete left;
+    return right;
+  }
+  if (right->occupancy == 0) {
+    delete right;
+    return left;
+  }
 
   // Pick the smaller hyper_table to be the source to iterate over.
   bool left_dst;
@@ -128,7 +136,7 @@ hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
     // destination table.
     bucket *dst_bucket = dst->find(b.key);
 
-    if (NULL == dst_bucket) {
+    if (nullptr == dst_bucket) {
       // The destination table does not contain this key.  Insert the
       // key-value pair from the source table into the destination.
       dst->insert(b);
@@ -144,7 +152,7 @@ hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
         dst_rb.reduce_fn(b.value.view, dst_rb.view);
         free(dst_rb.view);
         tool->mark_free(dst_rb.view);
-        dst_rb.view = b.value.view;
+        dst_bucket->value.view = b.value.view;
       }
     }
   }
