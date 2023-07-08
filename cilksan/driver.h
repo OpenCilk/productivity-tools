@@ -32,6 +32,14 @@
 // FILE io used to print error messages
 extern FILE *err_io;
 
+#define START_HOOK(call_id)                                                    \
+  if (!CILKSAN_INITIALIZED || !should_check())                                 \
+    return;                                                                    \
+  if (__builtin_expect(!call_pc[call_id], false))                              \
+    call_pc[call_id] = CALLERPC;                                               \
+  do {                                                                         \
+  } while (0)
+
 #define START_DL_INTERPOSER(func, type)                                        \
   if (__builtin_expect(dl_##func == NULL, false)) {                            \
     dl_##func = (type)dlsym(RTLD_NEXT, #func);                                 \
@@ -115,6 +123,55 @@ extern uintptr_t stack_high_addr;
 // Helper function to check if an address is in the stack.
 static inline bool is_on_stack(uintptr_t addr) {
   return (addr <= stack_high_addr && addr >= stack_low_addr);
+}
+
+// Helper function for checking a function that reads len bytes starting at ptr.
+static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
+                                    const void *ptr, size_t len) {
+  if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
+                                                 0);
+    } else {
+      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
+    }
+  }
+}
+
+static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
+                                    uintptr_t ptr, size_t len) {
+  if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, ptr, len, 0);
+    } else {
+      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, ptr, len, 0);
+    }
+  }
+}
+
+// Helper function for checking a function that writes len bytes starting at
+// ptr.
+static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
+                                     const void *ptr, size_t len) {
+  if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
+                                                  0);
+    } else {
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
+    }
+  }
+}
+
+static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
+                                     uintptr_t ptr, size_t len) {
+  if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
+    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
+      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, ptr, len, 0);
+    } else {
+      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, ptr, len, 0);
+    }
+  }
 }
 
 CILKSAN_API bool __cilksan_should_check(void);

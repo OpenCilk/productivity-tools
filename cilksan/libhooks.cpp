@@ -9,63 +9,6 @@
 #include "debug_util.h"
 #include "driver.h"
 
-#define START_HOOK(call_id)                                                    \
-  if (!CILKSAN_INITIALIZED || !should_check())                                 \
-    return;                                                                    \
-  if (__builtin_expect(!call_pc[call_id], false))                              \
-    call_pc[call_id] = CALLERPC;                                               \
-  do {                                                                         \
-  } while (0)
-
-// Helper function for checking a function that reads len bytes starting at ptr.
-static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
-                                    const void *ptr, size_t len) {
-  if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
-    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
-                                                 0);
-    } else {
-      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
-    }
-  }
-}
-
-static inline void check_read_bytes(csi_id_t call_id, MAAP_t MAAPVal,
-                                    uintptr_t ptr, size_t len) {
-  if (checkMAAP(MAAPVal, MAAP_t::Mod)) {
-    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_read<MAType_t::FNRW>(call_id, ptr, len, 0);
-    } else {
-      CilkSanImpl.do_read<MAType_t::FNRW>(call_id, ptr, len, 0);
-    }
-  }
-}
-
-// Helper function for checking a function that writes len bytes starting at
-// ptr.
-static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
-                                     const void *ptr, size_t len) {
-  if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
-    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len,
-                                                  0);
-    } else {
-      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, (uintptr_t)ptr, len, 0);
-    }
-  }
-}
-
-static inline void check_write_bytes(csi_id_t call_id, MAAP_t MAAPVal,
-                                     uintptr_t ptr, size_t len) {
-  if (checkMAAP(MAAPVal, MAAP_t::Ref)) {
-    if (__builtin_expect(CilkSanImpl.locks_held(), false)) {
-      CilkSanImpl.do_locked_write<MAType_t::FNRW>(call_id, ptr, len, 0);
-    } else {
-      CilkSanImpl.do_write<MAType_t::FNRW>(call_id, ptr, len, 0);
-    }
-  }
-}
-
 CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
                                         const csi_id_t func_id,
                                         unsigned MAAP_count) {
@@ -5131,50 +5074,4 @@ CILKSAN_API void __csan_write(const csi_id_t call_id, const csi_id_t func_id,
     return;
 
   check_read_bytes(call_id, buf_MAAPVal, buf, result);
-}
-
-// Hyperobjects
-CILKSAN_API void __csan_llvm_reducer_register_i32(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, void *handle) {
-  START_HOOK(call_id);
-
-  for (unsigned i = 0; i < MAAP_count; ++i)
-    MAAPs.pop();
-
-  if (!is_execution_parallel())
-    return;
-
-  // For race purposes treat this as a read of the leftmost view.
-  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
-}
-
-CILKSAN_API void __csan_llvm_reducer_register_i64(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, void *handle) {
-  START_HOOK(call_id);
-
-  for (unsigned i = 0; i < MAAP_count; ++i)
-    MAAPs.pop();
-
-  if (!is_execution_parallel())
-    return;
-
-  // For race purposes treat this as a read of the leftmost view.
-  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
-}
-
-CILKSAN_API void __csan_llvm_reducer_unregister(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, void *handle) {
-  START_HOOK(call_id);
-
-  for (unsigned i = 0; i < MAAP_count; ++i)
-    MAAPs.pop();
-
-  if (!is_execution_parallel())
-    return;
-
-  // For race purposes treat this as a read of the leftmost view.
-  check_read_bytes(call_id, MAAP_t::Ref, handle, 1);
 }

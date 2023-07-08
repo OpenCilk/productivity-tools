@@ -6,6 +6,69 @@
 #include "debug_util.h"
 #include "driver.h"
 
+// Hooks for handling reducer hyperobjects.
+
+static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
+                             void *key, void *identity_ptr, void *reduce_ptr) {
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (CilkSanImpl.stealable()) {
+    hyper_table *reducer_views = CilkSanImpl.get_or_create_reducer_views();
+    reducer_views->insert((bucket){
+        .key = (uintptr_t)key,
+        .value = {.view = key, .reduce_fn = (__cilk_reduce_fn)reduce_ptr}});
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  // For race purposes treat this as a read of the leftmost view.
+  check_read_bytes(call_id, MAAP_t::Ref, key, 1);
+}
+
+CILKSAN_API void
+__csan_llvm_reducer_register_i32(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 void *key, size_t size, void *identity_ptr,
+                                 void *reduce_ptr) {
+  START_HOOK(call_id);
+
+  reducer_register(call_id, MAAP_count, key, identity_ptr, reduce_ptr);
+}
+
+CILKSAN_API void
+__csan_llvm_reducer_register_i64(const csi_id_t call_id, const csi_id_t func_id,
+                                 unsigned MAAP_count, const call_prop_t prop,
+                                 void *key, size_t size, void *identity_ptr,
+                                 void *reduce_ptr) {
+  START_HOOK(call_id);
+
+  reducer_register(call_id, MAAP_count, key, identity_ptr, reduce_ptr);
+}
+
+CILKSAN_API void __csan_llvm_reducer_unregister(const csi_id_t call_id,
+                                                const csi_id_t func_id,
+                                                unsigned MAAP_count,
+                                                const call_prop_t prop,
+                                                void *key) {
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  // Remove this reducer from the table.
+  if (hyper_table *reducer_views = CilkSanImpl.get_reducer_views()) {
+    reducer_views->remove((uintptr_t)key);
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  // For race purposes treat this as a read of the leftmost view.
+  check_read_bytes(call_id, MAAP_t::Ref, key, 1);
+}
+
 CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
                                            const csi_id_t func_id,
                                            unsigned MAAP_count,
@@ -28,8 +91,10 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
     hyper_table *reducer_views = CilkSanImpl.get_or_create_reducer_views();
     // Check if a view has already been created, and return it if so.
     if (void *new_view =
-        CilkSanImpl.reducer_lookup(reducer_views, (uintptr_t)key))
+            CilkSanImpl.reducer_lookup(reducer_views, (uintptr_t)key)) {
+      DBG_TRACE(REDUCER, "hyper_lookup: found view: %p -> %p\n", key, new_view);
       return new_view;
+    }
     // Create and return a new reducer view.
     return CilkSanImpl.create_reducer_view(reducer_views, (uintptr_t)key, size,
                                            identity_fn, reduce_fn);
@@ -37,7 +102,7 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
   return view;
 }
 
-CILKSAN_API void*
+CILKSAN_API void *
 __csan_llvm_hyper_lookup_i64(const csi_id_t call_id, const csi_id_t func_id,
                              unsigned MAAP_count, const call_prop_t prop,
                              void *view, void *key, size_t size,
@@ -52,6 +117,10 @@ void CilkSanImpl_t::reduce_local_views() {
   if (!reducer_views)
     // No local reducer views to reduce
     return;
+
+  DBG_TRACE(REDUCER,
+            "reduce_local_views: processing reducer_views %p, occupancy %d\n",
+            reducer_views, reducer_views->occupancy);
 
   // Disable race detection to avoid spurious race reports from the execution of
   // the reduce functions.
@@ -76,6 +145,9 @@ void CilkSanImpl_t::reduce_local_views() {
     if (!is_valid(b.key))
       continue;
 
+    DBG_TRACE(REDUCER,
+              "reduce_local_views: found view to reduce at %d: %p -> %p\n", i,
+              (void *)b.key, (void *)b.value.view);
     // The key is the pointer to the leftmost view.
     void *left_view = (void *)b.key;
     reducer_base rb = b.value;
@@ -87,6 +159,8 @@ void CilkSanImpl_t::reduce_local_views() {
   enable_checking();
 
   // Delete the table of local reducer views
+  DBG_TRACE(REDUCER, "reduce_local_views: delete reducer_views %p\n",
+            reducer_views);
   delete reducer_views;
   f->reducer_views = nullptr;
 }
