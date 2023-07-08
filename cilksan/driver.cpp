@@ -80,14 +80,14 @@ extern Stack_t<unsigned> MAAP_counts;
 CILKSAN_API void __cilksan_enable_checking(void) {
   checking_disabled--;
   cilksan_assert(checking_disabled >= 0);
-  DBG_TRACE(DEBUG_BASIC, "External enable checking (%d).\n", checking_disabled);
+  DBG_TRACE(BASIC, "External enable checking (%d).\n", checking_disabled);
 }
 
 // Non-inlined version for user code to use
 CILKSAN_API void __cilksan_disable_checking(void) {
   cilksan_assert(checking_disabled >= 0);
   checking_disabled++;
-  DBG_TRACE(DEBUG_BASIC, "External disable checking (%d).\n", checking_disabled);
+  DBG_TRACE(BASIC, "External disable checking (%d).\n", checking_disabled);
 }
 
 // Non-inlined callback for user code to check if checking is enabled.
@@ -102,13 +102,12 @@ CILKSAN_API void __csan_set_MAAP(MAAP_t val, csi_id_t id) {
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_set_MAAP(%d, %ld)\n", val, id);
+  DBG_TRACE(CALLBACK, "__csan_set_MAAP(%d, %ld)\n", val, id);
   MAAPs.push_back(std::make_pair(id, val));
 }
 
 CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_get_MAAP(%p, %d, %d)\n", (void *)ptr, id,
-            idx);
+  DBG_TRACE(CALLBACK, "__csan_get_MAAP(%p, %d, %d)\n", (void *)ptr, id, idx);
   // We presume that __csan_get_MAAP runs early in the function, so if
   // instrumentation is disabled, it's disabled for the whole function.
   if (!should_check()) {
@@ -118,7 +117,7 @@ CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
 
   unsigned MAAP_count = MAAP_counts.back();
   if (idx >= MAAP_count) {
-    DBG_TRACE(DEBUG_CALLBACK, "  No MAAP found: idx %d >= count %d\n", idx,
+    DBG_TRACE(CALLBACK, "  No MAAP found: idx %d >= count %d\n", idx,
               MAAP_count);
     // The stack doesn't have MAAPs for us, so assume the worst: modref with
     // aliasing.
@@ -128,10 +127,10 @@ CILKSAN_API void __csan_get_MAAP(MAAP_t *ptr, csi_id_t id, unsigned idx) {
 
   std::pair<csi_id_t, MAAP_t> MAAP = *MAAPs.ancestor(idx);
   if (MAAP.first == id) {
-    DBG_TRACE(DEBUG_CALLBACK, "  Found MAAP: %d\n", MAAP.second);
+    DBG_TRACE(CALLBACK, "  Found MAAP: %d\n", MAAP.second);
     *ptr = MAAP.second;
   } else {
-    DBG_TRACE(DEBUG_CALLBACK, "  No MAAP found\n");
+    DBG_TRACE(CALLBACK, "  No MAAP found\n");
     // The stack doesn't have MAAPs for us, so assume the worst.
     *ptr = MAAP_t::ModRef;
   }
@@ -287,12 +286,10 @@ CILKSAN_API void __csan_func_entry(const csi_id_t func_id,
   }
 
   WHEN_CILKSAN_DEBUG({
-      const csan_source_loc_t *srcloc = __csan_get_func_source_loc(func_id);
-      DBG_TRACE(DEBUG_CALLBACK, "__csan_func_entry(%d) at %s (%s:%d)\n",
-                func_id,
-                srcloc->name, srcloc->filename,
-                srcloc->line_number);
-    });
+    const csan_source_loc_t *srcloc = __csan_get_func_source_loc(func_id);
+    DBG_TRACE(CALLBACK, "__csan_func_entry(%d) at %s (%s:%d)\n", func_id,
+              srcloc->name, srcloc->filename, srcloc->line_number);
+  });
 
   // Propagate the parallel-execution state to the child.
   uint8_t current_pe = parallel_execution.back();
@@ -330,9 +327,8 @@ CILKSAN_API void __csan_func_exit(const csi_id_t func_exit_id,
 #if CILKSAN_DEBUG
   const csan_source_loc_t *srcloc = __csan_get_func_exit_source_loc(func_exit_id);
 #endif
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_func_exit(%ld, %ld) at %s (%s:%d)\n",
-            func_exit_id, func_id,
-            srcloc->name, srcloc->filename,
+  DBG_TRACE(CALLBACK, "__csan_func_exit(%ld, %ld) at %s (%s:%d)\n",
+            func_exit_id, func_id, srcloc->name, srcloc->filename,
             srcloc->line_number);
 
   if (!spbags_frame_skipped.back()) {
@@ -369,7 +365,7 @@ CILKSAN_API void __csan_before_loop(const csi_id_t loop_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_before_loop(%ld)\n", loop_id);
+  DBG_TRACE(CALLBACK, "__csan_before_loop(%ld)\n", loop_id);
 
   // Record the address of this parallel loop.
   if (__builtin_expect(!loop_pc[loop_id], false))
@@ -398,7 +394,7 @@ CILKSAN_API void __csan_after_loop(const csi_id_t loop_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_after_loop(%ld)\n", loop_id);
+  DBG_TRACE(CALLBACK, "__csan_after_loop(%ld)\n", loop_id);
 
   CilkSanImpl.do_loop_end(sync_reg);
 
@@ -417,7 +413,7 @@ CILKSAN_API void __csan_before_call(const csi_id_t call_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_before_call(%ld, %ld)\n", call_id, func_id);
+  DBG_TRACE(CALLBACK, "__csan_before_call(%ld, %ld)\n", call_id, func_id);
 
   // Record the address of this call site.
   if (__builtin_expect(!call_pc[call_id], false))
@@ -440,8 +436,7 @@ CILKSAN_API void __csan_after_call(const csi_id_t call_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_after_call(%ld, %ld)\n",
-            call_id, func_id);
+  DBG_TRACE(CALLBACK, "__csan_after_call(%ld, %ld)\n", call_id, func_id);
 
   // Pop any MAAPs.
   cilksan_assert(MAAP_count == MAAP_counts.back() &&
@@ -465,8 +460,7 @@ __csan_detach(const csi_id_t detach_id, const unsigned sync_reg,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_detach(%ld)\n",
-            detach_id);
+  DBG_TRACE(CALLBACK, "__csan_detach(%ld)\n", detach_id);
   WHEN_CILKSAN_DEBUG(cilksan_assert(last_event == NONE));
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 
@@ -513,8 +507,8 @@ __csan_task(const csi_id_t task_id, const csi_id_t detach_id,
     switched_stack.push_back(0);
   }
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_task(%ld, %ld, %d)\n",
-            task_id, detach_id, prop.is_tapir_loop_body);
+  DBG_TRACE(CALLBACK, "__csan_task(%ld, %ld, %d)\n", task_id, detach_id,
+            prop.is_tapir_loop_body);
   WHEN_CILKSAN_DEBUG(last_event = NONE);
 
   CilkSanImpl.push_stack_frame((uintptr_t)bp, (uintptr_t)sp);
@@ -548,9 +542,8 @@ __csan_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_task_exit(%ld, %ld, %ld, %d, %d)\n",
-            task_exit_id, task_id, detach_id, sync_reg,
-            prop.is_tapir_loop_body);
+  DBG_TRACE(CALLBACK, "__csan_task_exit(%ld, %ld, %ld, %d, %d)\n", task_exit_id,
+            task_id, detach_id, sync_reg, prop.is_tapir_loop_body);
 
   if (prop.is_tapir_loop_body && CilkSanImpl.handle_loop()) {
     // Update tool for leaving the parallel iteration.
@@ -588,8 +581,7 @@ __csan_detach_continue(const csi_id_t detach_continue_id,
   if (!should_check())
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csan_detach_continue(%ld)\n",
-            detach_id);
+  DBG_TRACE(CALLBACK, "__csan_detach_continue(%ld)\n", detach_id);
 
   // OpenCilk semantics dictate that an implicit sync occurs upon entering the
   // unwind destination of a detach.
@@ -638,12 +630,11 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
     return;
 
   if (!should_check()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
-              size);
+    DBG_TRACE(MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr, size);
     return;
   }
   if (!is_execution_parallel()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
+    DBG_TRACE(MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
@@ -652,7 +643,7 @@ void __csan_load(csi_id_t load_id, const void *addr, int32_t size,
   if (__builtin_expect(!load_pc[load_id], false))
     load_pc[load_id] = CALLERPC;
 
-  DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
+  DBG_TRACE(MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
 
   if (is_running_under_rr)
     load_id = static_cast<csi_id_t>(get_rr_time());
@@ -679,12 +670,11 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
     return;
 
   if (!should_check()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr,
-              size);
+    DBG_TRACE(MEMORY, "SKIP %s read (%p, %ld)\n", __FUNCTION__, addr, size);
     return;
   }
   if (!is_execution_parallel()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
+    DBG_TRACE(MEMORY, "SKIP %s read (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
@@ -693,7 +683,7 @@ void __csan_large_load(csi_id_t load_id, const void *addr, size_t size,
   if (__builtin_expect(!load_pc[load_id], false))
     load_pc[load_id] = CALLERPC;
 
-  DBG_TRACE(DEBUG_MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
+  DBG_TRACE(MEMORY, "%s read (%p, %ld)\n", __FUNCTION__, addr, size);
 
   if (is_running_under_rr)
     load_id = static_cast<csi_id_t>(get_rr_time());
@@ -720,12 +710,11 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
     return;
 
   if (!should_check()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
-              size);
+    DBG_TRACE(MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
     return;
   }
   if (!is_execution_parallel()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
+    DBG_TRACE(MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
@@ -734,7 +723,7 @@ void __csan_store(csi_id_t store_id, const void *addr, int32_t size,
   if (__builtin_expect(!store_pc[store_id], false))
     store_pc[store_id] = CALLERPC;
 
-  DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
+  DBG_TRACE(MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
 
   if (is_running_under_rr)
     store_id = static_cast<csi_id_t>(get_rr_time());
@@ -761,12 +750,11 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
     return;
 
   if (!should_check()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr,
-              size);
+    DBG_TRACE(MEMORY, "SKIP %s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
     return;
   }
   if (!is_execution_parallel()) {
-    DBG_TRACE(DEBUG_MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
+    DBG_TRACE(MEMORY, "SKIP %s wrote (%p, %ld) during serial execution\n",
               __FUNCTION__, addr, size);
     return;
   }
@@ -775,7 +763,7 @@ void __csan_large_store(csi_id_t store_id, const void *addr, size_t size,
   if (__builtin_expect(!store_pc[store_id], false))
     store_pc[store_id] = CALLERPC;
 
-  DBG_TRACE(DEBUG_MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
+  DBG_TRACE(MEMORY, "%s wrote (%p, %ld)\n", __FUNCTION__, addr, size);
 
   if (is_running_under_rr)
     store_id = static_cast<csi_id_t>(get_rr_time());
@@ -811,8 +799,8 @@ void __csi_after_alloca(const csi_id_t alloca_id, const void *addr,
   if (__builtin_expect(!alloca_pc[alloca_id], false))
     alloca_pc[alloca_id] = CALLERPC;
 
-  DBG_TRACE(DEBUG_CALLBACK, "__csi_after_alloca(%ld, %p, %ld)\n", alloca_id,
-            addr, size);
+  DBG_TRACE(CALLBACK, "__csi_after_alloca(%ld, %p, %ld)\n", alloca_id, addr,
+            size);
 
   // Record the alloca and clear the allocated portion of the shadow memory.
   CilkSanImpl.record_alloc((size_t) addr, size, 2 * alloca_id);
@@ -829,9 +817,10 @@ void __csan_after_allocfn(const csi_id_t allocfn_id,
   if (!CILKSAN_INITIALIZED)
     return;
 
-  DBG_TRACE(DEBUG_CALLBACK,
-            "__csan_after_allocfn(%ld, %s, addr = %p, size = %ld, oldaddr = %p)\n",
-            allocfn_id, __csan_get_allocfn_str(prop), addr, size, oldaddr);
+  DBG_TRACE(
+      CALLBACK,
+      "__csan_after_allocfn(%ld, %s, addr = %p, size = %ld, oldaddr = %p)\n",
+      allocfn_id, __csan_get_allocfn_str(prop), addr, size, oldaddr);
 
   // TODO: Use alignment information
   // Record the PC for this allocation-function call

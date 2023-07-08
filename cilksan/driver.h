@@ -68,12 +68,12 @@ extern bool instrumentation;
 // Methods for enabling and disabling instrumentation
 
 static inline void enable_instrumentation() {
-  DBG_TRACE(DEBUG_BASIC, "Enable instrumentation.\n");
+  DBG_TRACE(BASIC, "Enable instrumentation.\n");
   instrumentation = true;
 }
 
 static inline void disable_instrumentation() {
-  DBG_TRACE(DEBUG_BASIC, "Disable instrumentation.\n");
+  DBG_TRACE(BASIC, "Disable instrumentation.\n");
   instrumentation = false;
 }
 

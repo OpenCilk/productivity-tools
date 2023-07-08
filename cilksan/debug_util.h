@@ -19,16 +19,16 @@
 
 // debug_level is a bitmap
 enum debug_levels {
-  DEBUG_BASIC = 1,
-  DEBUG_BACKTRACE = 2,
-  DEBUG_BAGS = 4,
-  DEBUG_CALLBACK = 8,
-  DEBUG_MEMORY = 16,
-  DEBUG_DEQUE = 32,
-  DEBUG_REDUCER = 64,
-  DEBUG_DISJOINTSET = 128,
-  DEBUG_STACK = 256,
-  DEBUG_SHADOWMEM = 512,
+  DEBUG_BASIC = 0x1,
+  DEBUG_BACKTRACE = 0x2,
+  DEBUG_BAGS = 0x4,
+  DEBUG_CALLBACK = 0x8,
+  DEBUG_MEMORY = 0x10,
+  DEBUG_DEQUE = 0x20,
+  DEBUG_REDUCER = 0x40,
+  DEBUG_DISJOINTSET = 0x80,
+  DEBUG_STACK = 0x100,
+  DEBUG_SHADOWMEM = 0x200,
 };
 
 #if CILKSAN_DEBUG
@@ -68,7 +68,7 @@ void die(const char *fmt, ...);
 void debug_printf(const char *fmt, ...);
 
 #if CILKSAN_DEBUG
-#define DBG_TRACE(level,...) if (debug_level & level) { debug_printf(__VA_ARGS__); }
+#define DBG_TRACE(level,...) if (debug_level & DEBUG_##level) { debug_printf(__VA_ARGS__); }
 #else
 #define DBG_TRACE(level,...)
 #endif
