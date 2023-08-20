@@ -104,7 +104,7 @@ generic_masked_load_store(const csi_id_t call_id, unsigned MAAP_count,
     }
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v4i32_p0v4i32(
+CILKSAN_API void __csan_llvm_masked_load_v4i32_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i32 *result, v4i32 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -112,7 +112,7 @@ CILKSAN_API void __csan_llvm_masked_load_v4i32_p0v4i32(
       call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_store_v4i32_p0v4i32(
+CILKSAN_API void __csan_llvm_masked_store_v4i32_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i32 *val, v4i32 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -120,7 +120,7 @@ CILKSAN_API void __csan_llvm_masked_store_v4i32_p0v4i32(
       call_id, MAAP_count, prop, val, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v4i64_p0v4i64(
+CILKSAN_API void __csan_llvm_masked_load_v4i64_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i64 *result, v4i64 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -128,7 +128,7 @@ CILKSAN_API void __csan_llvm_masked_load_v4i64_p0v4i64(
       call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_store_v4i64_p0v4i64(
+CILKSAN_API void __csan_llvm_masked_store_v4i64_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i64 *val, v4i64 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -136,7 +136,7 @@ CILKSAN_API void __csan_llvm_masked_store_v4i64_p0v4i64(
       call_id, MAAP_count, prop, val, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v8i32_p0v8i32(
+CILKSAN_API void __csan_llvm_masked_load_v8i32_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v8i32 *result, v8i32 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -144,7 +144,7 @@ CILKSAN_API void __csan_llvm_masked_load_v8i32_p0v8i32(
       call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_store_v8i32_p0v8i32(
+CILKSAN_API void __csan_llvm_masked_store_v8i32_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v8i32 *val, v8i32 *ptr, int32_t alignment,
     uint8_t *mask) {
@@ -152,7 +152,7 @@ CILKSAN_API void __csan_llvm_masked_store_v8i32_p0v8i32(
       call_id, MAAP_count, prop, val, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v16i8_p0v16i8(
+CILKSAN_API void __csan_llvm_masked_load_v16i8_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v16i8 *result, v16i8 *ptr, int32_t alignment,
     uint16_t *mask) {
@@ -160,7 +160,7 @@ CILKSAN_API void __csan_llvm_masked_load_v16i8_p0v16i8(
       call_id, MAAP_count, prop, result, ptr, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v32i8_p0v32i8(
+CILKSAN_API void __csan_llvm_masked_load_v32i8_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v32i8 *result, v32i8 *ptr, int32_t alignment,
     uint32_t *mask) {
@@ -197,7 +197,7 @@ generic_masked_gather_scatter(const csi_id_t call_id, unsigned MAAP_count,
     }
 }
 
-CILKSAN_API void __csan_llvm_masked_gather_v4f64_v4p0f64(
+CILKSAN_API void __csan_llvm_masked_gather_v4f64_v4p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4f64 *val, v4ptrs *addrs, int32_t alignment,
     uint8_t *mask) {
@@ -205,7 +205,15 @@ CILKSAN_API void __csan_llvm_masked_gather_v4f64_v4p0f64(
       call_id, MAAP_count, prop, val, addrs, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4i32_v4p0i32(
+CILKSAN_API void __csan_llvm_masked_scatter_v4f64_v4p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4f64 *val, v4ptrs *addrs, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_gather_scatter<v4f64, 4, uint8_t, false>(
+      call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_scatter_v4i32_v4p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i32 *val, v4ptrs *addrs, int32_t alignment,
     uint8_t *mask) {
@@ -213,7 +221,7 @@ CILKSAN_API void __csan_llvm_masked_scatter_v4i32_v4p0i32(
       call_id, MAAP_count, prop, val, addrs, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4i64_v4p0i64(
+CILKSAN_API void __csan_llvm_masked_scatter_v4i64_v4p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v4i64 *val, v4ptrs *addrs, int32_t alignment,
     uint8_t *mask) {
@@ -221,7 +229,23 @@ CILKSAN_API void __csan_llvm_masked_scatter_v4i64_v4p0i64(
       call_id, MAAP_count, prop, val, addrs, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_gather_v8i32_v8p0i32(
+CILKSAN_API void __csan_llvm_masked_gather_v4p0_v4p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4ptrs *val, v4ptrs *addrs, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_gather_scatter<v4ptrs, 4, uint8_t, true>(
+      call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_scatter_v4p0_v4p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v4ptrs *val, v4ptrs *addrs, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_gather_scatter<v4ptrs, 4, uint8_t, false>(
+      call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_gather_v8i32_v8p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v8i32 *result, v8ptrs *addrs, int32_t alignment,
     uint8_t *mask, v8i32 *passthru) {
@@ -229,7 +253,7 @@ CILKSAN_API void __csan_llvm_masked_gather_v8i32_v8p0i32(
       call_id, MAAP_count, prop, result, addrs, alignment, mask);
 }
 
-CILKSAN_API void __csan_llvm_masked_scatter_v8i32_v8p0i32(
+CILKSAN_API void __csan_llvm_masked_scatter_v8i32_v8p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, v8i32 *val, v8ptrs *addrs, int32_t alignment,
     uint8_t *mask) {
@@ -641,22 +665,6 @@ CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
   CilkSanImpl.advance_stack_frame((uintptr_t)sp);
 }
 
-CILKSAN_API void __csan_llvm_prefetch_p0i8(const csi_id_t call_id,
-                                           const csi_id_t func_id,
-                                           unsigned MAAP_count,
-                                           const call_prop_t prop, void *addr,
-                                           int32_t rw, int32_t locality,
-                                           int32_t cache_ty) {
-  if (!CILKSAN_INITIALIZED)
-    return;
-
-  if (!should_check())
-    return;
-
-  for (unsigned i = 0; i < MAAP_count; ++i)
-    MAAPs.pop();
-}
-
 CILKSAN_API void __csan_llvm_stackrestore(const csi_id_t call_id,
                                           const csi_id_t func_id,
                                           unsigned MAAP_count,
@@ -670,6 +678,35 @@ CILKSAN_API void __csan_llvm_stackrestore(const csi_id_t call_id,
     return;
 
   CilkSanImpl.restore_stack(call_id, (uintptr_t)sp);
+}
+
+CILKSAN_API void
+__csan_llvm_prefetch_p0(const csi_id_t call_id, const csi_id_t func_id,
+                        unsigned MAAP_count, const call_prop_t prop, void *addr,
+                        int32_t rw, int32_t locality, int32_t cache_ty) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+}
+
+CILKSAN_API void __csan_llvm_threadlocal_address_p0(const csi_id_t call_id,
+                                                    const csi_id_t func_id,
+                                                    unsigned MAAP_count,
+                                                    const call_prop_t prop,
+                                                    void *result, void *addr) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
 }
 
 CILKSAN_API void __csan_llvm_trap(const csi_id_t call_id,
