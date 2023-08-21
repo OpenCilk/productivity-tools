@@ -56,6 +56,8 @@ using v4i32 = vec_t<int32_t, 4>;
 using v4i64 = vec_t<int64_t, 4>;
 using v4ptrs = vec_t<uintptr_t, 4>;
 
+using v8f32 = vec_t<float, 8>;
+using v8f64 = vec_t<double, 8>;
 using v8i8 = vec_t<int8_t, 8>;
 using v8i32 = vec_t<int32_t, 8>;
 using v8ptrs = vec_t<uintptr_t, 8>;
@@ -242,6 +244,22 @@ CILKSAN_API void __csan_llvm_masked_scatter_v4p0_v4p0(
     const call_prop_t prop, v4ptrs *val, v4ptrs *addrs, int32_t alignment,
     uint8_t *mask) {
   generic_masked_gather_scatter<v4ptrs, 4, uint8_t, false>(
+      call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_gather_v8f64_v8p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *val, v8ptrs *addrs, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_gather_scatter<v8f64, 8, uint8_t, true>(
+      call_id, MAAP_count, prop, val, addrs, alignment, mask);
+}
+
+CILKSAN_API void __csan_llvm_masked_scatter_v8f64_v8p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *val, v8ptrs *addrs, int32_t alignment,
+    uint8_t *mask) {
+  generic_masked_gather_scatter<v8f64, 8, uint8_t, false>(
       call_id, MAAP_count, prop, val, addrs, alignment, mask);
 }
 
