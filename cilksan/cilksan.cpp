@@ -963,7 +963,33 @@ void CilkSanImpl_t::deinit() {
   if (collect_stats)
     print_stats();
 
-  cilksan_assert(frame_stack.size() == 1);
+  // Remove references to the disjoint set nodes so they can be freed.
+  // We expect just 1 frame on the stack at this point, unless the
+  // program terminated from within a function, e.g., by calling
+  // exit().
+  bool foundNonemptyPBags = false;
+  // Return from all functions still on the stack.
+  while (frame_stack.size() > 1) {
+    FrameData_t *f = frame_stack.head();
+    // Check if there are any nonempty PBags in this frame.
+    if (f->Pbags) {
+      // We found nonempty PBags at program termination.  This
+      // typically should not happen unless the program exits from an
+      // unusual place, e.g., by calling exit() in a continuation.
+      if (!foundNonemptyPBags) {
+        std::cerr << "WARNING: Unsynchronized spawns detected!  Did the "
+                     "program terminate early?\n";
+        foundNonemptyPBags = true;
+      }
+
+      // Synchronize all Pbags.
+      for (unsigned sync_reg = 0; sync_reg < f->num_Pbags; ++sync_reg)
+        do_sync(sync_reg);
+    }
+
+    // Return from the function.
+    do_leave(0);
+  }
 
   // Free the shadow memory
   if (shadow_memory) {
@@ -971,8 +997,7 @@ void CilkSanImpl_t::deinit() {
     shadow_memory = nullptr;
   }
 
-  // Remove references to the disjoint set nodes so they can be freed.
-  cilksan_assert(frame_stack.head()->Pbags == nullptr);
+  // Cleanup final frame.
   frame_stack.head()->reset();
   frame_stack.pop();
   cilksan_assert(frame_stack.size() == 0);
