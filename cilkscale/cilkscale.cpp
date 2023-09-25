@@ -354,7 +354,7 @@ void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
 }
 
 CILKTOOL_API
-void __csi_detach(const csi_id_t detach_id, const int32_t *has_spawned,
+void __csi_detach(const csi_id_t detach_id, const unsigned sync_reg,
                   const detach_prop_t prop) {
   tool->shadow_stack->stop.gettime();
 
@@ -395,7 +395,8 @@ void __csi_task(const csi_id_t task_id, const csi_id_t detach_id,
 
 CILKTOOL_API
 void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
-                     const csi_id_t detach_id, const task_exit_prop_t prop) {
+                     const csi_id_t detach_id, const unsigned sync_reg,
+                     const task_exit_prop_t prop) {
   tool->shadow_stack->stop.gettime();
 
 #if TRACE_CALLS
@@ -426,7 +427,7 @@ void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
 
 CILKTOOL_API
 void __csi_detach_continue(const csi_id_t detach_continue_id,
-                           const csi_id_t detach_id,
+                           const csi_id_t detach_id, const unsigned sync_reg,
                            const detach_continue_prop_t prop) {
   // In the continuation
 #if TRACE_CALLS
@@ -462,7 +463,7 @@ void __csi_detach_continue(const csi_id_t detach_continue_id,
 }
 
 CILKTOOL_API
-void __csi_before_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
+void __csi_before_sync(const csi_id_t sync_id, const unsigned sync_reg) {
   tool->shadow_stack->stop.gettime();
 
 #if TRACE_CALLS
@@ -479,7 +480,7 @@ void __csi_before_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
 }
 
 CILKTOOL_API
-void __csi_after_sync(const csi_id_t sync_id, const int32_t *has_spawned) {
+void __csi_after_sync(const csi_id_t sync_id, const unsigned sync_reg) {
 #if TRACE_CALLS
   fprintf(stderr, "[W%d] after_sync(%ld)\n", __cilkrts_get_worker_number(),
           sync_id);
