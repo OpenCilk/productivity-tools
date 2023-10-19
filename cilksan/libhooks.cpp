@@ -922,6 +922,19 @@ CILKSAN_API void __csan_acoshl(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
+CILKSAN_API void
+__csan_aligned_alloc(const csi_id_t call_id, const csi_id_t func_id,
+                     unsigned MAAP_count, const call_prop_t prop, void *result,
+                     size_t num, size_t alignment, size_t size) {
+  START_HOOK(call_id);
+
+  if (MAAP_count > 0) {
+    MAAPs.pop();
+  }
+
+  __cilksan_record_alloc(result, size);
+}
+
 CILKSAN_API void __csan_asinf(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               float result, float arg) {
@@ -1092,6 +1105,18 @@ CILKSAN_API void __csan_bcmp(const csi_id_t call_id, const csi_id_t func_id,
 
   check_read_bytes(call_id, s1_MAAPVal, s1, n);
   check_read_bytes(call_id, s2_MAAPVal, s2, n);
+}
+
+CILKSAN_API void __csan_calloc(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               void *result, size_t num, size_t size) {
+  START_HOOK(call_id);
+
+  if (MAAP_count > 0) {
+    MAAPs.pop();
+  }
+
+  __cilksan_record_alloc(result, num * size);
 }
 
 CILKSAN_API void __csan_cbrtf(const csi_id_t call_id, const csi_id_t func_id,
@@ -3147,6 +3172,19 @@ CILKSAN_API void __csan_readlinkat(const csi_id_t call_id,
 
   check_read_bytes(call_id, pathname_MAAPVal, pathname, strlen(pathname) + 1);
   check_write_bytes(call_id, buf_MAAPVal, buf, result);
+}
+
+CILKSAN_API void __csan_realloc(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                void *result, void *ptr, size_t new_size) {
+  START_HOOK(call_id);
+
+  if (MAAP_count > 0) {
+    MAAPs.pop();
+  }
+
+  __cilksan_record_free(ptr);
+  __cilksan_record_alloc(result, new_size);
 }
 
 CILKSAN_API void __csan_realpath(const csi_id_t call_id, const csi_id_t func_id,
