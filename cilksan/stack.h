@@ -43,7 +43,7 @@ private:
 
     // Copy contents of old call stack
     for (uint32_t i = 0; i < copy_end; ++i) {
-      _stack[i] = old_stack[i];
+      _stack[i] = std::move(old_stack[i]);
     }
     _capacity = new_capacity;
 

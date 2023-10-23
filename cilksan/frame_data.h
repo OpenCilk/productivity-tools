@@ -259,6 +259,30 @@ struct FrameData_t {
     return Iterbag;
   }
 
+  FrameData_t &operator=(FrameData_t &&that) {
+    Sbag_used = that.Sbag_used;
+    Iterbag_used = that.Iterbag_used;
+    frame_data = that.frame_data;
+    InContin = that.InContin;
+    ParentContin = that.ParentContin;
+    num_Pbags = that.num_Pbags;
+    Sbag = that.Sbag;
+    Pbags = that.Pbags;
+    Iterbag = that.Iterbag;
+    reducer_views = that.reducer_views;
+
+    that.Sbag_used = false;
+    that.Iterbag_used = false;
+    that.InContin = 0;
+    that.ParentContin = 0;
+    that.num_Pbags = 0;
+    that.Sbag = nullptr;
+    that.Pbags = nullptr;
+    that.Iterbag = nullptr;
+    that.reducer_views = nullptr;
+
+    return *this;
+  }
 };
 
 #endif // __FRAME_DATA_H__
