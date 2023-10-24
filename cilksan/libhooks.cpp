@@ -922,10 +922,11 @@ CILKSAN_API void __csan_acoshl(const csi_id_t call_id, const csi_id_t func_id,
   return;
 }
 
-CILKSAN_API void
-__csan_aligned_alloc(const csi_id_t call_id, const csi_id_t func_id,
-                     unsigned MAAP_count, const call_prop_t prop, void *result,
-                     size_t num, size_t alignment, size_t size) {
+CILKSAN_API void __csan_aligned_alloc(const csi_id_t call_id,
+                                      const csi_id_t func_id,
+                                      unsigned MAAP_count,
+                                      const call_prop_t prop, void *result,
+                                      size_t alignment, size_t size) {
   START_HOOK(call_id);
 
   if (MAAP_count > 0) {
