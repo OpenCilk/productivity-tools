@@ -877,6 +877,12 @@ void __csan_after_allocfn(const csi_id_t allocfn_id,
         }
         CilkSanImpl.record_alloc((size_t)addr, new_size, 2 * allocfn_id + 1);
         CilkSanImpl.malloc_sizes.remove((uintptr_t)addr);
+      } else {
+        // If we don't have a recorded size for this realloc, simply treat it as
+        // a malloc.  This situation can occur if the previous malloc was not
+        // instrumented for some reason.
+        CilkSanImpl.record_alloc((size_t)addr, new_size, 2 * allocfn_id + 1);
+        CilkSanImpl.clear_shadow_memory((size_t)addr, new_size);
       }
       CilkSanImpl.malloc_sizes.insert((uintptr_t)addr, new_size);
     }
