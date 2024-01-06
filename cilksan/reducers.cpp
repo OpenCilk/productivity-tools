@@ -15,7 +15,7 @@ static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
 
   if (CilkSanImpl.stealable()) {
     hyper_table *reducer_views = CilkSanImpl.get_or_create_reducer_views();
-    reducer_views->insert((bucket){
+    reducer_views->insert((hyper_table::bucket){
         .key = (uintptr_t)key,
         .value = {.view = key, .reduce_fn = (__cilk_reduce_fn)reduce_ptr}});
   }
@@ -139,9 +139,9 @@ void CilkSanImpl_t::reduce_local_views() {
 
   // Reduce every reducer view in the table with its leftmost view.
   int32_t capacity = reducer_views->capacity;
-  bucket *buckets = reducer_views->buckets;
+  hyper_table::bucket *buckets = reducer_views->buckets;
   for (int32_t i = 0; i < capacity; ++i) {
-    bucket b = buckets[i];
+    hyper_table::bucket b = buckets[i];
     if (!is_valid(b.key))
       continue;
 
@@ -199,16 +199,16 @@ hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
 
   int32_t src_capacity =
       (src->capacity < MIN_HT_CAPACITY) ? src->occupancy : src->capacity;
-  bucket *src_buckets = src->buckets;
+  hyper_table::bucket *src_buckets = src->buckets;
   // Iterate over the contents of the source hyper_table.
   for (int32_t i = 0; i < src_capacity; ++i) {
-    struct bucket b = src_buckets[i];
+    hyper_table::bucket b = src_buckets[i];
     if (!is_valid(b.key))
       continue;
 
     // For each valid key in the source table, lookup that key in the
     // destination table.
-    bucket *dst_bucket = dst->find(b.key);
+    hyper_table::bucket *dst_bucket = dst->find(b.key);
 
     if (nullptr == dst_bucket) {
       // The destination table does not contain this key.  Insert the
