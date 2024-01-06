@@ -168,7 +168,7 @@ public:
   // Attempt to look up a view for a reducer.  Returns a pointer to a view if it
   // exists and nullptr if not.
   void *reducer_lookup(hyper_table *reducer_views, uintptr_t key) const {
-    bucket *b = reducer_views->find(key);
+    hyper_table::bucket *b = reducer_views->find(key);
     if (b) {
       assert(key == b->key);
       return b->value.view;
@@ -192,8 +192,9 @@ public:
     identity(new_view);
 
     // Insert the view into the table of reducer_views.
-    bucket new_bucket = {.key = (uintptr_t)key,
-                         .value = {.view = new_view, .reduce_fn = reduce}};
+    hyper_table::bucket new_bucket = {
+        .key = (uintptr_t)key,
+        .value = {.view = new_view, .reduce_fn = reduce}};
     bool success = reducer_views->insert(new_bucket);
     assert(success && "create_reducer_view failed to insert new reducer.");
     (void)success;
