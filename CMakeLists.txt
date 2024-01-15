@@ -53,6 +53,9 @@ option(CILKTOOLS_BUILD_CILKSAN "Build Cilksan" ON)
 mark_as_advanced(CILKTOOLS_BUILD_CILKSAN)
 option(CILKTOOLS_BUILD_CILKSCALE "Build Cilkscale" ON)
 mark_as_advanced(CILKTOOLS_BUILD_CILKSCALE)
+option(CILKTOOLS_BUILD_CILKGRAPH "Build Cilkgraph" ON)
+mark_as_advanced(CILKTOOLS_BUILD_CILKGRAPH)
+
 
 if (CILKTOOLS_STANDALONE_BUILD)
   set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
@@ -345,7 +348,7 @@ pythonize_bool(CILKTOOLS_TEST_USE_LLD)
 
 include(AddCilktools)
 
-set(ALL_CILKTOOLS csi;cilksan;cilkscale)
+set(ALL_CILKTOOLS csi;cilksan;cilkscale;cilkgraph)
 set(CILKTOOLS_TO_BUILD all CACHE STRING
     "cilktools to build if supported on the target (all;${ALL_CILKTOOLS})")
 list_replace(CILKTOOLS_TO_BUILD all "${ALL_CILKTOOLS}")
