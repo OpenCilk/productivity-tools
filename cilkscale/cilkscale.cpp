@@ -62,37 +62,38 @@ public:
   std::ostream &outs = std::cout;
   std::ofstream outf;
 #if !SERIAL_TOOL
-  out_reducer *outf_red = nullptr;
+  // out_reducer *outf_red = nullptr;
+  out_reducer outf_red;
 #endif
 
   std::basic_ostream<char> *out_view() {
 #if !SERIAL_TOOL
-    // TODO: The compiler does not correctly bind the hyperobject
-    // type to a reference, otherwise a reference return value would
-    // be more conventional C++.
-    if (outf_red)
-      return &*outf_red;
+    // // TODO: The compiler does not correctly bind the hyperobject
+    // // type to a reference, otherwise a reference return value would
+    // // be more conventional C++.
+    // if (outf_red)
+      return &outf_red;
 #endif
     if (outf.is_open())
       return &outf;
     return &outs;
   }
 
-  CilkscaleImpl_t();
+  CilkscaleImpl_t(const char *output_filename = nullptr);
   ~CilkscaleImpl_t();
 };
 
 // Top-level Cilkscale tool.
 static CilkscaleImpl_t *create_tool(void) {
-  if (!__cilkrts_is_initialized())
-    // If the OpenCilk runtime is not yet initialized, then csi_init will
-    // register a call to init_tool to initialize the tool after the runtime is
-    // initialized.
-    return nullptr;
+  // if (!__cilkrts_is_initialized())
+  //   // If the OpenCilk runtime is not yet initialized, then csi_init will
+  //   // register a call to init_tool to initialize the tool after the runtime is
+  //   // initialized.
+  //   return nullptr;
 
   // Otherwise, ordered dynamic initalization should ensure that it's safe to
   // create the tool.
-  return new CilkscaleImpl_t();
+  return new CilkscaleImpl_t(getenv("CILKSCALE_OUT"));
 }
 static CilkscaleImpl_t *tool = create_tool();
 
@@ -168,7 +169,12 @@ static inline void ensure_serial_tool(void) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-CilkscaleImpl_t::CilkscaleImpl_t() {
+CilkscaleImpl_t::CilkscaleImpl_t(const char *output_filename)
+  : outf(output_filename)
+#if !SERIAL_TOOL
+  , outf_red(outf.is_open() ? outf : outs)
+#endif
+{
 #if SERIAL_TOOL
   shadow_stack = new shadow_stack_t(frame_type::MAIN);
 #else
@@ -178,17 +184,17 @@ CilkscaleImpl_t::CilkscaleImpl_t() {
                              &shadow_stack_t::reduce);
 #endif
 
-  const char *envstr = getenv("CILKSCALE_OUT");
-  if (envstr)
-    outf.open(envstr);
+  // const char *envstr = getenv("CILKSCALE_OUT");
+  // if (envstr)
+  //   outf.open(envstr);
 
-#if !SERIAL_TOOL
-  outf_red = new out_reducer((outf.is_open() ? outf : outs));
-  __cilkrts_reducer_register(
-      outf_red, sizeof(*outf_red),
-      &cilk::ostream_view<char, std::char_traits<char>>::identity,
-      &cilk::ostream_view<char, std::char_traits<char>>::reduce);
-#endif
+// #if !SERIAL_TOOL
+//   outf_red = new out_reducer((outf.is_open() ? outf : outs));
+//   __cilkrts_reducer_register(
+//       outf_red, sizeof(*outf_red),
+//       &cilk::ostream_view<char, std::char_traits<char>>::identity,
+//       &cilk::ostream_view<char, std::char_traits<char>>::reduce);
+// #endif
 
   shadow_stack->push(frame_type::SPAWNER);
   shadow_stack->start.gettime();
@@ -214,11 +220,11 @@ CilkscaleImpl_t::~CilkscaleImpl_t() {
   delete shadow_stack;
   shadow_stack = nullptr;
 
-#if !SERIAL_TOOL
-  __cilkrts_reducer_unregister(outf_red);
-  delete outf_red;
-  outf_red = nullptr;
-#endif
+// #if !SERIAL_TOOL
+//   __cilkrts_reducer_unregister(outf_red);
+//   delete outf_red;
+//   outf_red = nullptr;
+// #endif
 }
 
 #pragma clang diagnostic pop
@@ -226,11 +232,11 @@ CilkscaleImpl_t::~CilkscaleImpl_t() {
 ///////////////////////////////////////////////////////////////////////////
 // Hooks for operating the tool.
 
-// Custom function to intialize tool after the OpenCilk runtime is initialized.
-static void init_tool(void) {
-  assert(nullptr == tool && "Tool already initialized");
-  tool = new CilkscaleImpl_t();
-}
+// // Custom function to intialize tool after the OpenCilk runtime is initialized.
+// static void init_tool(void) {
+//   assert(nullptr == tool && "Tool already initialized");
+//   tool = new CilkscaleImpl_t(getenv("CILKSCALE_OUT"));
+// }
 
 static void destroy_tool(void) {
   if (tool) {
@@ -246,10 +252,11 @@ CILKTOOL_API void __csi_init() {
   fprintf(stderr, "__csi_init()\n");
 #endif
 
-  if (!__cilkrts_is_initialized())
-    __cilkrts_atinit(init_tool);
+  // if (!__cilkrts_is_initialized())
+  //   __cilkrts_atinit(init_tool);
 
-  __cilkrts_atexit(destroy_tool);
+  // __cilkrts_atexit(destroy_tool);
+  atexit(destroy_tool);
 
 #if SERIAL_TOOL
   ensure_serial_tool();
