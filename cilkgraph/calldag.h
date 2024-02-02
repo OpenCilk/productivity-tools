@@ -1,6 +1,11 @@
 #ifndef INCLUDED_CALLGRAPH_H
 #define INCLUDED_CALLGRAPH_H
 
+#include <iomanip>
+#include <limits>
+#include <sstream>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <cilk/cilk.h>
@@ -42,19 +47,35 @@ struct dot_diedge {
   std::string a, b;
 };
 
+struct dot_node {
+  std::string name;
+  std::unordered_map<std::string, std::string> attrs;
+};
+
 template <class OS>
 OS& operator<<(OS& os, dot_diedge e) {
   os << "\"" << e.a << "\" -> \"" << e.b << "\" ";
   return os;
 }
 
+template <class OS>
+OS& operator<<(OS& os, dot_node node) {
+  os << "\"" << node.name << "\" [";
+  for (auto& [k, v] : node.attrs) {
+    os << "\"" << k << "\"=\"" << v << "\",";
+  }
+  os << "] ";
+  return os;
+}
+
 struct node_t {
   call_type type;
-  unsigned worker_id;
+  unsigned head_worker_id;
+  unsigned tail_worker_id;
   std::vector<node_t*> children;
 
   node_t(call_type type, unsigned worker_id) :
-    type(type), worker_id(worker_id) {
+    type(type), head_worker_id(worker_id) {
   }
 
   ~node_t() {
@@ -63,14 +84,29 @@ struct node_t {
     }
   }
 
+  static std::string worker_id_to_color(unsigned worker_id) {
+    if (worker_id == 0) return "0 0.6 1";
+    unsigned mssb = worker_id & -worker_id;
+    unsigned numer = 2 * (worker_id ^ mssb) + 1;
+    unsigned denom = 2 * mssb;
+    std::ostringstream ss;
+    ss << std::setprecision(std::numeric_limits<double>::digits10);
+    ss << std::fixed << 1.0 * numer / denom;
+    ss << " 0.6 1";
+    return ss.str();
+  }
+
   template <class OS>
   void print_dot(OS& os, std::string& prefix) const {
     std::vector<std::string> active_nodes;
     std::string prev_node = prefix + "head";
+    os << dot_node{prev_node, {{"style", "filled"}, {"fillcolor", worker_id_to_color(head_worker_id)}}};
+    os << dot_node{prefix + "tail", {{"style", "filled"}, {"fillcolor", worker_id_to_color(tail_worker_id)}}};
     int nc = children.size();
     for (int i = 0; i < nc; ++i) {
       if (children[i]->type == call_type::Sync) {
         std::string sync_node = prefix + std::to_string(i) + ".sync";
+        os << dot_node{sync_node, {{"style", "filled"}, {"fillcolor", worker_id_to_color(children[i]->head_worker_id)}}};
 
         os << dot_diedge{prev_node, sync_node};
         for (auto& node : active_nodes) {
@@ -83,6 +119,7 @@ struct node_t {
       } else if (children[i]->type == call_type::Cont) {
         active_nodes.push_back(prev_node);
         prev_node = prefix + std::to_string(i) + ".cont";
+        os << dot_node{prev_node, {{"style", "filled"}, {"fillcolor", worker_id_to_color(children[i]->head_worker_id)}}};
 
         os << dot_diedge{prefix + "head", prev_node};
         continue;
@@ -103,7 +140,7 @@ struct node_t {
 
   template <class OS>
   void dump(OS& os) const {
-    os << type << "[W" << worker_id << "](";
+    os << type << "[W" << head_worker_id << "](";
     for (auto& c : children) {
       c->dump(os);
     }
@@ -142,6 +179,11 @@ public:
   void push(call_type type, unsigned worker_id) {
     stack.push_back(
         stack.back()->children.emplace_back(new node_t(type, worker_id)));
+  }
+
+  void pop(unsigned worker_id) {
+    stack.back()->tail_worker_id = worker_id;
+    stack.pop_back();
   }
 
   void pop() {

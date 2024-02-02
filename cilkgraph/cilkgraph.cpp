@@ -11,6 +11,8 @@ using calldag::call_type;
 
 #define CILKTOOL_API extern "C" __attribute__((visibility("default")))
 
+// TODO: correctly handle numbered syncregions
+
 class CilkgraphImpl_t {
   std::unique_ptr<std::ofstream> outf;
 public:
@@ -145,7 +147,7 @@ void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
       << ", tid=" << task_id << ", did=" << detach_id << ", sr="
       << sync_reg << ")" << std::endl;
 #endif
-  tool->callg.pop();
+  tool->callg.pop(worker_number());
 }
 
 CILKTOOL_API
