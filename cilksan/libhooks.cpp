@@ -2668,7 +2668,7 @@ CILKSAN_API void __csan_memcpy(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan___memcpy_chk(const csi_id_t call_id, const csi_id_t func_id,
                                      unsigned MAAP_count, const call_prop_t prop,
                                      void *result, void *dst, const void *src, size_t len,
-                                     size_t count) {
+                                     size_t destlen) {
   START_HOOK(call_id);
 
   MAAP_t dest_MAAPVal = MAAP_t::ModRef, src_MAAPVal = MAAP_t::ModRef;
@@ -2679,14 +2679,14 @@ CILKSAN_API void __csan___memcpy_chk(const csi_id_t call_id, const csi_id_t func
     MAAPs.pop();
   }
 
-  if (!is_execution_parallel() || len > count)
+  if (!is_execution_parallel() || len > destlen)
     return;
 
   if (nullptr == dst || nullptr == src)
     return;
 
   check_read_bytes(call_id, src_MAAPVal, src, len);
-  check_write_bytes(call_id, dest_MAAPVal, dst, count);
+  check_write_bytes(call_id, dest_MAAPVal, dst, len);
 }
 
 CILKSAN_API void __csan_memmove(const csi_id_t call_id, const csi_id_t func_id,
