@@ -59,6 +59,7 @@ using v4ptrs = vec_t<uintptr_t, 4>;
 using v8f32 = vec_t<float, 8>;
 using v8f64 = vec_t<double, 8>;
 using v8i8 = vec_t<int8_t, 8>;
+using v8i16 = vec_t<int16_t, 8>;
 using v8i32 = vec_t<int32_t, 8>;
 using v8ptrs = vec_t<uintptr_t, 8>;
 
@@ -476,6 +477,18 @@ CILKSAN_API void __csan_llvm_aarch64_neon_ld1x2_v4f32_p0(
   generic_aarch64_neon_ld<v4f32, 2>(call_id, MAAP_count, prop, val, ptr);
 }
 
+CILKSAN_API void __csan_llvm_aarch64_neon_ld1x2_v8i16_p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *val, int8_t *ptr) {
+  generic_aarch64_neon_ld<v8i16, 2>(call_id, MAAP_count, prop, val, ptr);
+}
+
+CILKSAN_API void __csan_llvm_aarch64_neon_ld1x2_v16i8_p0(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *val, int8_t *ptr) {
+  generic_aarch64_neon_ld<v16i8, 2>(call_id, MAAP_count, prop, val, ptr);
+}
+
 CILKSAN_API void __csan_llvm_aarch64_neon_ld1x3_v4f32_p0(
     const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
     const call_prop_t prop, void *val, float *ptr) {
@@ -657,6 +670,42 @@ CILKSAN_API void __csan_llvm_stackrestore(const csi_id_t call_id,
     return;
 
   CilkSanImpl.restore_stack(call_id, (uintptr_t)sp);
+}
+
+CILKSAN_API void __csan_llvm_get_dynamic_area_offset_i64(const csi_id_t call_id,
+                                                         const csi_id_t func_id,
+                                                         unsigned MAAP_count,
+                                                         const call_prop_t prop,
+                                                         int64_t result) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+}
+
+CILKSAN_API void __csan_llvm_get_dynamic_area_offset_i32(const csi_id_t call_id,
+                                                         const csi_id_t func_id,
+                                                         unsigned MAAP_count,
+                                                         const call_prop_t prop,
+                                                         int32_t result) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
 }
 
 CILKSAN_API void
