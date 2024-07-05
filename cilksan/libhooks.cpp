@@ -638,10 +638,10 @@ CILKSAN_API void __csan_llvm_clear_cache(const csi_id_t call_id,
   return;
 }
 
-CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
-                                       const csi_id_t func_id,
-                                       unsigned MAAP_count,
-                                       const call_prop_t prop, void *sp) {
+CILKSAN_API void __csan_llvm_stacksave_p0(const csi_id_t call_id,
+                                          const csi_id_t func_id,
+                                          unsigned MAAP_count,
+                                          const call_prop_t prop, void *sp) {
   if (!CILKSAN_INITIALIZED)
     return;
 
@@ -657,10 +657,10 @@ CILKSAN_API void __csan_llvm_stacksave(const csi_id_t call_id,
   CilkSanImpl.advance_stack_frame((uintptr_t)sp);
 }
 
-CILKSAN_API void __csan_llvm_stackrestore(const csi_id_t call_id,
-                                          const csi_id_t func_id,
-                                          unsigned MAAP_count,
-                                          const call_prop_t prop, void *sp) {
+CILKSAN_API void __csan_llvm_stackrestore_p0(const csi_id_t call_id,
+                                             const csi_id_t func_id,
+                                             unsigned MAAP_count,
+                                             const call_prop_t prop, void *sp) {
   START_HOOK(call_id);
 
   for (unsigned i = 0; i < MAAP_count; ++i)
