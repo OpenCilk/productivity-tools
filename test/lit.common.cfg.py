@@ -597,13 +597,13 @@ for postfix in ["2", "1", ""]:
     config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, '-Wl,-rpath,@executable_path/ %dynamiclib' + postfix) )
     config.substitutions.append( ("%ld_flags_rpath_so" + postfix, '-install_name @rpath/`basename %dynamiclib{}`'.format(postfix)) )
   elif config.host_os in ('FreeBSD', 'NetBSD', 'OpenBSD'):
-    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, "-Wl,-z,origin -Wl,-rpath,\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
+    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, r"-Wl,-z,origin -Wl,-rpath,\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
     config.substitutions.append( ("%ld_flags_rpath_so" + postfix, '') )
   elif config.host_os == 'Linux':
-    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, "-Wl,-rpath,\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
+    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, r"-Wl,-rpath,\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
     config.substitutions.append( ("%ld_flags_rpath_so" + postfix, '') )
   elif config.host_os == 'SunOS':
-    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, "-Wl,-R\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
+    config.substitutions.append( ("%ld_flags_rpath_exe" + postfix, r"-Wl,-R\$ORIGIN -L%T -l%xdynamiclib_namespec" + postfix) )
     config.substitutions.append( ("%ld_flags_rpath_so" + postfix, '') )
 
   # Must be defined after the substitutions that use %dynamiclib.
