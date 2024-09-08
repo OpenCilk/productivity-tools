@@ -2,6 +2,7 @@
 #ifndef INCLUDED_SHADOW_STACK_H
 #define INCLUDED_SHADOW_STACK_H
 
+#include <cassert>
 #include <cilk/cilk.h>
 #include "cilkscale_timer.h"
 
