@@ -3,12 +3,12 @@
 #ifndef _STACK_H
 #define _STACK_H
 
-#include <assert.h>
+#include "debug_util.h"
+#include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <inttypes.h>
-
-#include "debug_util.h"
+#include <utility>
 
 /*
  * Stack data structure for storing and maintaining data

@@ -3,15 +3,13 @@
 #ifndef _SPBAG_H
 #define _SPBAG_H
 
-#include <cstdio>
-#include <cstdint>
-#include <cstdlib>
-#include <string>
-#include <inttypes.h>
-
 #include "debug_util.h"
 #include "disjointset.h"
 #include "race_info.h"
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #define UNINIT_STACK_PTR ((uintptr_t)0LL)
 

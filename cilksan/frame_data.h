@@ -2,8 +2,6 @@
 #ifndef __FRAME_DATA_H__
 #define __FRAME_DATA_H__
 
-#include "cilksan_internal.h"
-#include "csan.h"
 #include "disjointset.h"
 #include "hypertable.h"
 #include "spbag.h"

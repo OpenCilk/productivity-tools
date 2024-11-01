@@ -2,6 +2,10 @@
 #ifndef __RACE_INFO_H__
 #define __RACE_INFO_H__
 
+#include "debug_util.h"
+#include <csi/csi.h>
+#include <ostream>
+
 #ifndef CHECK_EQUIVALENT_STACKS
 #define CHECK_EQUIVALENT_STACKS false
 #endif

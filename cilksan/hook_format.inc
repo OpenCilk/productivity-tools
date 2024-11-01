@@ -10,9 +10,13 @@
 // and http://pubs.opengroup.org/onlinepubs/9699919799/functions/fprintf.html
 // with a few common GNU extensions.
 
-#include <cstdarg>
-
 #include "debug_util.h"
+#include "driver.h"
+#include <csi/csi.h>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 #define CHECK(p) cilksan_assert(p)
 #define CHECK_GT(n, v) cilksan_assert(n > 0)
@@ -149,7 +153,7 @@ static int format_get_value_size(char convSpecifier,
     case 'z':
       return sizeof(size_t);
     case 't':
-      return sizeof(ptrdiff_t);
+      return sizeof(std::ptrdiff_t);
     case 0:
       return sizeof(int);
     default:

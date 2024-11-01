@@ -2,11 +2,6 @@
 #ifndef __SIMPLE_SHADOW_MEM__
 #define __SIMPLE_SHADOW_MEM__
 
-#include <cstdlib>
-#include <iostream>
-#include <inttypes.h>
-#include <sys/mman.h>
-
 #include "checking.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
@@ -14,6 +9,8 @@
 #include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "vector.h"
+#include <cstdlib>
+#include <sys/mman.h>
 
 class SimpleShadowMem;
 

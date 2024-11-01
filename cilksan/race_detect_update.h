@@ -2,8 +2,8 @@
 #ifndef __RACE_DETECT_UPDATE__
 #define __RACE_DETECT_UPDATE__
 
-#include "csan.h"
 #include "simple_shadow_mem.h"
+#include <csi/csi.h>
 
 // Check races on memory [addr, addr+mem_size) with this read access.  Once done
 // checking, update shadow_memory with this new read access.

@@ -3,13 +3,13 @@
 #ifndef _DISJOINTSET_H
 #define _DISJOINTSET_H
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstdint>
-
 #include "aligned_alloc.h"
 #include "debug_util.h"
 #include "race_info.h"
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 
 #if DISJOINTSET_DEBUG
 #define WHEN_DISJOINTSET_DEBUG(stmt) do { stmt; } while(0)

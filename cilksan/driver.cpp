@@ -1,20 +1,15 @@
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <fstream>
-#include <dlfcn.h>
-#include <map>
-#include <sys/mman.h>
-#include <unistd.h>
-
 #include "checking.h"
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "driver.h"
-#include "race_detect_update.h"
-#include "simple_shadow_mem.h"
 #include "stack.h"
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <dlfcn.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 // FILE io used to print error messages
 extern FILE *err_io;

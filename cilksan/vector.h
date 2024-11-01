@@ -3,12 +3,10 @@
 #ifndef _VECTOR_H
 #define _VECTOR_H
 
-#include <assert.h>
+#include "debug_util.h"
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
-#include <inttypes.h>
-
-#include "debug_util.h"
 
 // Vector data structure for storing and maintaining data
 // associated with the call vector.

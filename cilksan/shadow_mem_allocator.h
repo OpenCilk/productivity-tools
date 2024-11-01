@@ -2,13 +2,11 @@
 #ifndef __SHADOW_MEM_ALLOCATOR_H__
 #define __SHADOW_MEM_ALLOCATOR_H__
 
-#include <cstddef>
-#include <cstdlib>
-#include <iostream>
-#include <inttypes.h>
-
 #include "aligned_alloc.h"
 #include "dictionary.h"
+#include <cstddef>
+#include <cstdlib>
+#include <inttypes.h>
 
 // The memory-access-line allocator is dedicated to allocating specific
 // fixed-size arrays of MemoryAccess_t objects, e.g., MemoryAccess_t[1],

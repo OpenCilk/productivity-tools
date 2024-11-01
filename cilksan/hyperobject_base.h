@@ -2,11 +2,8 @@
 #ifndef _HYPEROBJECT_BASE
 #define _HYPEROBJECT_BASE
 
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-
 #include <cilk/cilk_api.h>
+#include <cstdlib>
 
 // Reducer data.
 //

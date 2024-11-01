@@ -1,10 +1,10 @@
+#include "debug_util.h"
+#include "driver.h"
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
-#include <strings.h>
+#include <cstring>
 #include <signal.h>
-#include "debug_util.h"
-#include "driver.h"
 
 /*
   static void print_bt(FILE *f) {

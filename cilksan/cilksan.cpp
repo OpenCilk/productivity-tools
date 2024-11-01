@@ -1,8 +1,3 @@
-#include <cstdio>
-#include <cstdlib>
-#include <iostream>
-#include <inttypes.h>
-
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "disjointset.h"
@@ -12,6 +7,9 @@
 #include "simple_shadow_mem.h"
 #include "spbag.h"
 #include "stack.h"
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
 
 // FILE io used to print error messages
 FILE *err_io = stderr;

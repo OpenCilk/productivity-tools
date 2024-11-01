@@ -2,8 +2,9 @@
 #ifndef _HYPERTABLE_H
 #define _HYPERTABLE_H
 
-#include <cstdint>
 #include "hyperobject_base.h"
+#include <cassert>
+#include <cstdint>
 
 // Helper methods for testing and setting keys.
 static const uintptr_t KEY_EMPTY = 0UL;

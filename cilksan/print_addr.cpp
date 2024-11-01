@@ -1,18 +1,13 @@
+#include "csan.h"
+#include "cilksan_internal.h"
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <string>
-#include <sstream>
-#include <unordered_map>
 #include <memory>
-
-#include <inttypes.h>
-#include <unistd.h>
 #include <signal.h>
-
-#include "csan.h"
-#include "cilksan_internal.h"
-#include "debug_util.h"
+#include <sstream>
+#include <unistd.h>
+#include <unordered_map>
 
 extern bool is_running_under_rr;
 

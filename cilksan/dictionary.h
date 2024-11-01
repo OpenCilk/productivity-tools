@@ -2,16 +2,14 @@
 #ifndef __DICTIONARY__
 #define __DICTIONARY__
 
-#include <cstdio>
-#include <cstdlib>
-#include <iostream>
-#include <inttypes.h>
-
 #include "debug_util.h"
 #include "disjointset.h"
 #include "frame_data.h"
-#include "race_info.h"
 #include "spbag.h"
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
 
 using DS_t = DisjointSet_t<call_stack_t>;
 

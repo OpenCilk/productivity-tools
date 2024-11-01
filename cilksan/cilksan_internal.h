@@ -2,10 +2,6 @@
 #ifndef __CILKSAN_INTERNAL_H__
 #define __CILKSAN_INTERNAL_H__
 
-#include <cstdio>
-#include <iostream>
-#include <unordered_map>
-
 #include "addrmap.h"
 #include "csan.h"
 #include "dictionary.h"
@@ -15,6 +11,8 @@
 #include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "stack.h"
+#include <cstdio>
+#include <unordered_map>
 
 extern bool CILKSAN_INITIALIZED;
 

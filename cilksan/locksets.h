@@ -3,12 +3,12 @@
 #ifndef _LOCKSETS_H
 #define _LOCKSETS_H
 
-#include <assert.h>
+#include "debug_util.h"
+#include "dictionary.h"
+#include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <inttypes.h>
-
-#include "debug_util.h"
 
 enum IntersectionResult_t : uint8_t {
   EMPTY = 0x0,

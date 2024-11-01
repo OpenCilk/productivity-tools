@@ -1,8 +1,7 @@
-#include <cstdlib>
-#include <assert.h>
-#include <atomic>
-#include <iostream>
 #include "csan.h"
+#include <atomic>
+#include <cassert>
+#include <cstdlib>
 
 #define CSIRT_API __attribute__((visibility("default")))
 

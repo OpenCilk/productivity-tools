@@ -1,7 +1,7 @@
 #ifndef __DEBUG_UTIL_H__
 #define __DEBUG_UTIL_H__
 
-#include <assert.h>
+#include <cassert>
 
 #ifndef CILKSAN_DEBUG
 #ifdef _DEBUG

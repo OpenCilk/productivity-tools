@@ -2,14 +2,12 @@
 #ifndef __DRIVER_H__
 #define __DRIVER_H__
 
-#include <csi/csi.h>
-#include <cstdint>
-#include <utility>
-
-#include "addrmap.h"
 #include "cilksan_internal.h"
 #include "locksets.h"
 #include "stack.h"
+#include <csi/csi.h>
+#include <cstdint>
+#include <utility>
 
 #ifndef CILKSAN_VIS
 #define CILKSAN_VIS __attribute__((visibility("default")))
