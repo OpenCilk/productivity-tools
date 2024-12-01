@@ -1,6 +1,7 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "driver.h"
+#include <complex>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -1156,6 +1157,24 @@ CILKSAN_API void __csan_bcmp(const csi_id_t call_id, const csi_id_t func_id,
   check_read_bytes(call_id, s2_MAAPVal, s2, n);
 }
 
+CILKSAN_API void __csan_cabs(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             double result, std::complex<double> z) {
+  return;
+}
+
+CILKSAN_API void __csan_cabsf(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              float result, std::complex<float> z) {
+  return;
+}
+
+CILKSAN_API void __csan_cabsl(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop,
+                              float result, std::complex<long double> z) {
+  return;
+}
+
 CILKSAN_API void __csan_calloc(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                void *result, size_t num, size_t size) {
@@ -2212,6 +2231,25 @@ CILKSAN_API void __csan_fstat(const csi_id_t call_id, const csi_id_t func_id,
 
   check_write_bytes(call_id, buf_MAAPVal, buf, sizeof(struct stat));
 }
+
+#if defined(__linux__)
+CILKSAN_API void __csan_fstat64(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                int result, int fd, struct stat64 *buf) {
+  START_HOOK(call_id);
+
+  MAAP_t buf_MAAPVal = MAAP_t::ModRef;
+  if (MAAP_count > 0) {
+    buf_MAAPVal = MAAPs.back().second;
+    MAAPs.pop();
+  }
+
+  if (!is_execution_parallel())
+    return;
+
+  check_write_bytes(call_id, buf_MAAPVal, buf, sizeof(struct stat64));
+}
+#endif
 
 CILKSAN_API void __csan_ftell(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
