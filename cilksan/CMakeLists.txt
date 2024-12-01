@@ -12,7 +12,8 @@ set(CILKSAN_SOURCES
 
 set(CILKSAN_BITCODE_SOURCE
   driver.cpp
-  libhooks.cpp)
+  libhooks.cpp
+  reducers.cpp)
 
 set(CILKSAN_RR_FILES
   rr_commands.py)
