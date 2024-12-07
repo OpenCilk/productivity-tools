@@ -2,12 +2,16 @@
 #ifndef INCLUDED_SHADOW_STACK_H
 #define INCLUDED_SHADOW_STACK_H
 
+#include "cilkscale_timer.h"
 #include <cassert>
 #include <cilk/cilk.h>
-#include "cilkscale_timer.h"
 
 #ifndef SERIAL_TOOL
 #define SERIAL_TOOL 1
+#endif
+
+#if SERIAL_TOOL
+#include <cilk/cilk_stub.h>
 #endif
 
 #ifndef TRACE_CALLS

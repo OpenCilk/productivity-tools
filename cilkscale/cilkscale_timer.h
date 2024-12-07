@@ -4,8 +4,8 @@
 
 #include <cilk/cilkscale.h>
 #include <csi/csi.h>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 
 #define RDTSC 1
 #define CLOCK 2
@@ -23,7 +23,7 @@
 #endif
 
 ///////////////////////////////////////////////////////////////////////////
-// Data structures and helper methods for time of user strands.
+// Data structures and helper methods to time user strands.
 #if CSCALETIMER == RDTSC || CSCALETIMER == INST
 using duration_t = raw_duration_t;
 #else // CSCALETIMER == CLOCK
@@ -32,6 +32,8 @@ using duration_t = std::chrono::nanoseconds;
 static_assert(sizeof(duration_t) == sizeof(raw_duration_t),
               "Mistmatched sizes for time values.");
 
+// Class representing time for a user strand.  This class is designed to hide
+// the specific details of which timer is used.
 class cilk_time_t {
   duration_t val;
 
@@ -50,12 +52,14 @@ public:
 #endif // CSCALETIMER
   }
 
+  // Comparison operators between cilk_time_t's and duration_t's.
   friend bool operator==(const cilk_time_t &lhs, const duration_t &rhs) {
     return lhs.val == rhs;
   }
   friend bool operator>(const cilk_time_t &lhs, const duration_t &rhs) {
     return lhs.val > rhs;
   }
+  // Arithmetic operators between cilk_time_t's and duration_t's.
   friend cilk_time_t operator+(cilk_time_t lhs, const duration_t &rhs) {
     lhs.val += rhs;
     return lhs;
@@ -73,13 +77,14 @@ public:
     return *this;
   }
 
+  // Comparison operators between cilk_time_t's.
   friend bool operator==(const cilk_time_t &lhs, const cilk_time_t &rhs) {
     return lhs.val == rhs.val;
   }
   friend bool operator>(const cilk_time_t &lhs, const cilk_time_t &rhs) {
     return lhs.val > rhs.val;
   }
-
+  // Arithmetic operators between cilk_time_t's.
   friend cilk_time_t operator+(cilk_time_t lhs, const cilk_time_t &rhs) {
     lhs.val += rhs.val;
     return lhs;
