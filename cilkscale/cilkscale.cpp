@@ -113,7 +113,7 @@ static void printAnalysis(void) {
   assert(CILKSCALE_INITIALIZED);
   shadow_stack_frame_t &Bottom = Tool->ShadowStack.peek_bot();
 
-  assert(frame_type::NONE != bottom.type);
+  assert(frame_type::NONE != Bottom.type);
 
   cilk_time_t Work = Bottom.contin_work;
   cilk_time_t Span = Bottom.contin_span;
@@ -279,8 +279,8 @@ void __csi_func_exit(const csi_id_t func_exit_id, const csi_id_t func_id,
 
   duration_t StrandTime = Tool->ShadowStack.elapsed_time();
 
-  assert(cilk_time_t::zero() == tool->shadow_stack.peek_bot().lchild_span);
-  assert(cilk_time_t::zero() == tool->shadow_stack.peek_bot().achild_work);
+  assert(cilk_time_t::zero() == Tool->ShadowStack.peek_bot().lchild_span);
+  assert(cilk_time_t::zero() == Tool->ShadowStack.peek_bot().achild_work);
 
   // Pop the stack
   shadow_stack_frame_t &CBottom = Tool->ShadowStack.pop();
@@ -355,7 +355,7 @@ void __csi_task_exit(const csi_id_t task_exit_id, const csi_id_t task_id,
   Bottom.contin_span += StrandTime;
   Bottom.contin_bspan += StrandTime;
 
-  assert(cilk_time_t::zero() == bottom.lchild_span);
+  assert(cilk_time_t::zero() == Bottom.lchild_span);
 
   // Pop the stack
   shadow_stack_frame_t &CBottom = Tool->ShadowStack.pop();
