@@ -1,0 +1,98 @@
+name: Small Cilk application tests
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  small-apps:
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
+      volumes:
+        - /mnt/:/mnt/
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macOS-13, macOS-latest]
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: Setup OpenCilk compiler
+      id: build-opencilk
+      uses: OpenCilk/actions/build-opencilk-project@main
+      with:
+        projects: clang
+        os_list: '${{ matrix.os }}'
+    - name: Build cheetah
+      id: build-cheetah
+      uses: OpenCilk/actions/build-cheetah@main
+      with:
+        opencilk_install: '${{ steps.build-opencilk.outputs.opencilk-installdir }}'
+        opencilk_build: '${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+    - name: Build cilktools
+      id: build-cilktools
+      shell: bash
+      run: |
+        builddir="$(pwd)"/build
+        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-installdir }}'
+        opencilkbuilddir='${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+        clangversion="$($opencilkdir/bin/llvm-config --version | cut -d '.' -f 1)"
+        mkdir -p $builddir
+        cmake -G Ninja \
+              -B "$builddir" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=$opencilkdir/bin/clang \
+              -DCMAKE_CXX_COMPILER=$opencilkdir/bin/clang++ \
+              -DLLVM_CMAKE_DIR=$opencilkdir \
+              -DCMAKE_INSTALL_PREFIX=$opencilkdir \
+              -DLLVM_COMMON_CMAKE_UTILS=$opencilkbuilddir/../cmake \
+              -DCILKTOOLS_OUTPUT_DIR="$(pwd)"/lib/clang/$clangversion \
+              -DCILKTOOLS_INSTALL_PATH=$opencilkdir/lib/clang/$clangversion
+        ninja -C "$builddir" install
+    - name: Checkout small application tests
+      uses: actions/checkout@v4
+      with:
+        repository: OpenCilk/smallapps
+        path: smallapps
+    - name: Check Cilkscale
+      shell: bash
+      run: |
+        cheetahdir="$(pwd)"/build
+        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-installdir }}'
+        make_prefix=""
+        if [ "${{ runner.os }}" == "macOS" ]; then
+          # Use xcrun to build benchmarks on macOS.
+          make_prefix="xcrun"
+        fi
+        $make_prefix make -C smallapps -B check \
+          CC=$opencilkdir/bin/clang \
+          CXX=$opencilkdir/bin/clang++ \
+          EXTRA_CFLAGS="-fcilktool=cilkscale" \
+          EXTRA_LDFLAGS="-fcilktool=cilkscale"
+    - name: Check Cilksan
+      shell: bash
+      run: |
+        cheetahdir="$(pwd)"/build
+        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-installdir }}'
+        make_prefix=""
+        if [ "${{ runner.os }}" == "macOS" ]; then
+          # Use xcrun to build benchmarks on macOS.
+          make_prefix="xcrun"
+        fi
+        $make_prefix make -C smallapps -B one-check \
+          CC=$opencilkdir/bin/clang \
+          CXX=$opencilkdir/bin/clang++ \
+          EXTRA_CFLAGS="-fsanitize=cilk -g" \
+          EXTRA_LDFLAGS="-fsanitize=cilk"
