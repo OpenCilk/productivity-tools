@@ -67,7 +67,7 @@ public:
   // Timer for tracking execution time.
   cilkscale_timer_t Start, Stop;
 #if SERIAL_TOOL
-  cilkscale_timer_t timer;
+  cilkscale_timer_t Timer;
 #else
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcilk-ignored"
