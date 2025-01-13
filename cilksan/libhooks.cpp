@@ -750,10 +750,10 @@ CILKSAN_API void __csan_llvm_trap(const csi_id_t call_id,
     MAAPs.pop();
 }
 
-CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
-                                      const csi_id_t func_id,
-                                      unsigned MAAP_count,
-                                      const call_prop_t prop, va_list ap) {
+CILKSAN_API void __csan_llvm_va_start_p0(const csi_id_t call_id,
+                                         const csi_id_t func_id,
+                                         unsigned MAAP_count,
+                                         const call_prop_t prop, va_list ap) {
   if (!CILKSAN_INITIALIZED)
     return;
 
@@ -764,9 +764,10 @@ CILKSAN_API void __csan_llvm_va_start(const csi_id_t call_id,
     MAAPs.pop();
 }
 
-CILKSAN_API void __csan_llvm_va_end(const csi_id_t call_id,
-                                    const csi_id_t func_id, unsigned MAAP_count,
-                                    const call_prop_t prop, va_list ap) {
+CILKSAN_API void __csan_llvm_va_end_p0(const csi_id_t call_id,
+                                       const csi_id_t func_id,
+                                       unsigned MAAP_count,
+                                       const call_prop_t prop, va_list ap) {
   if (!CILKSAN_INITIALIZED)
     return;
 
@@ -1309,6 +1310,24 @@ CILKSAN_API void __csan_ldiv(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_lldiv(const csi_id_t call_id, const csi_id_t func_id,
                               unsigned MAAP_count, const call_prop_t prop,
                               lldiv_t result, long long x, long long y) {
+  return;
+}
+
+CILKSAN_API void __csan_erff(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             float result, float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_erf(const csi_id_t call_id, const csi_id_t func_id,
+                            unsigned MAAP_count, const call_prop_t prop,
+                            double result, double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_erfl(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             long double result, long double arg) {
   return;
 }
 
