@@ -1,6 +1,7 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "driver.h"
+#include "vector.h"
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +18,9 @@ static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
     reducer_views->insert((hyper_table::bucket){
         .key = (uintptr_t)key,
         .value = {.view = key, .reduce_fn = (__cilk_reduce_fn)reduce_ptr}});
+    DBG_TRACE(REDUCER,
+              "reducer_register: registered %p, reducer_views %p, occupancy %d\n",
+              key, reducer_views, reducer_views->occupancy);
   }
 
   if (!is_execution_parallel())
@@ -58,6 +62,10 @@ CILKSAN_API void __csan_llvm_reducer_unregister(const csi_id_t call_id,
 
   // Remove this reducer from the table.
   if (hyper_table *reducer_views = CilkSanImpl.get_reducer_views()) {
+    DBG_TRACE(
+        REDUCER,
+        "reducer_unregister: unregistering %p, reducer_views %p, occupancy %d\n",
+        key, reducer_views, reducer_views->occupancy);
     reducer_views->remove((uintptr_t)key);
   }
 
@@ -139,10 +147,16 @@ void CilkSanImpl_t::reduce_local_views() {
   // Reduce every reducer view in the table with its leftmost view.
   int32_t capacity = reducer_views->capacity;
   hyper_table::bucket *buckets = reducer_views->buckets;
+  bool holdsLeftmostViews = false;
+  Vector_t<int32_t> keysToRemove;
   for (int32_t i = 0; i < capacity; ++i) {
     hyper_table::bucket b = buckets[i];
     if (!is_valid(b.key))
       continue;
+    if (b.key == (uintptr_t)(b.value.view)) {
+      holdsLeftmostViews = true;
+      continue;
+    }
 
     DBG_TRACE(REDUCER,
               "reduce_local_views: found view to reduce at %d: %p -> %p\n", i,
@@ -154,14 +168,20 @@ void CilkSanImpl_t::reduce_local_views() {
     // Delete the right view.
     free(rb.view);
     mark_free(rb.view);
+    keysToRemove.push_back(b.key);
   }
   enable_checking();
 
-  // Delete the table of local reducer views
-  DBG_TRACE(REDUCER, "reduce_local_views: delete reducer_views %p\n",
-            reducer_views);
-  delete reducer_views;
-  f->reducer_views = nullptr;
+  if (!holdsLeftmostViews) {
+    // Delete the table of local reducer views
+    DBG_TRACE(REDUCER, "reduce_local_views: delete reducer_views %p\n",
+              reducer_views);
+    delete reducer_views;
+    f->reducer_views = nullptr;
+  } else {
+    for (int32_t i = 0; i < keysToRemove.size(); ++i)
+      reducer_views->remove(buckets[keysToRemove[i]].key);
+  }
 }
 
 hyper_table *

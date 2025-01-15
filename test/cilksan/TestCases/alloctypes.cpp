@@ -93,7 +93,7 @@ void global_test() {
 
 // CHECK-GLOBAL: Race detected on location [[GLOBAL]]
 // CHECK-GLOBAL: * Write {{[0-9a-f]+}} global_test
-// CHECK-GLOBALOB: * Write {{[0-9a-f]+}} global_test
+// CHECK-GLOBAL: * Write {{[0-9a-f]+}} global_test
 // CHECK-GLOBAL: Common calling context
 // CHECK-GLOBAL-NEXT: Parfor
 
