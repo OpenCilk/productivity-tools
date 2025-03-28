@@ -2,7 +2,9 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "driver.h"
+#include "race_info.h"
 #include "stack.h"
+#include <csi/csi.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -1095,7 +1097,23 @@ CILKSAN_API void __cilksan_record_alloc(void *addr, size_t size) {
 
 CILKSAN_API void __cilksan_record_free(void *ptr) {
   CheckingRAII nocheck;
-  CilkSanImpl.mark_free(ptr);
+  if (!should_check()) {
+    CilkSanImpl.mark_free(ptr);
+    return;
+  }
+  const size_t *size = CilkSanImpl.malloc_sizes.get((uintptr_t)ptr);
+  if (CilkSanImpl.malloc_sizes.contains((uintptr_t)ptr)) {
+    if (!is_execution_parallel()) {
+      CilkSanImpl.clear_alloc((size_t)ptr, *size);
+      CilkSanImpl.clear_shadow_memory((size_t)ptr, *size);
+    } else {
+      // Treat a free as a write to all freed addresses.  This way the tool will
+      // report a race if an operation tries to access a location that was freed
+      // in parallel.
+      CilkSanImpl.record_free((uintptr_t)ptr, *size, UNKNOWN_CSI_ID, MAType_t::FREE);
+    }
+    CilkSanImpl.malloc_sizes.remove((uintptr_t)ptr);
+  }
 }
 
 // FIXME: Currently these dynamic interposers are never used, because common
