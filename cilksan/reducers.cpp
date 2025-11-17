@@ -1,15 +1,21 @@
 #include "cilksan_internal.h"
 #include "debug_util.h"
 #include "driver.h"
+#include "hypertable.h"
 #include "vector.h"
+#include <cilk/reducer>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
+#include <variant>
 
 // Hooks for handling reducer hyperobjects.
 
+template <typename ExtraTy>
 static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
-                             void *key, void *identity_ptr, void *reduce_ptr) {
+                             void *key, ExtraTy *extra) {
   for (unsigned i = 0; i < MAAP_count; ++i)
     MAAPs.pop();
 
@@ -17,7 +23,7 @@ static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
     hyper_table *reducer_views = CilkSanImpl.get_or_create_reducer_views();
     reducer_views->insert((hyper_table::bucket){
         .key = (uintptr_t)key,
-        .value = {.view = key, .reduce_fn = (__cilk_reduce_fn)reduce_ptr}});
+        .data = {.view = key, .extra = extra}});
     DBG_TRACE(REDUCER,
               "reducer_register: registered %p, reducer_views %p, occupancy %d\n",
               key, reducer_views, reducer_views->occupancy);
@@ -31,23 +37,31 @@ static void reducer_register(const csi_id_t call_id, unsigned MAAP_count,
 }
 
 CILKSAN_API void
-__csan_llvm_reducer_register_i32(const csi_id_t call_id, const csi_id_t func_id,
-                                 unsigned MAAP_count, const call_prop_t prop,
-                                 void *key, size_t size, void *identity_ptr,
-                                 void *reduce_ptr) {
+__csan_llvm_reducer_register(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             int32_t type, void *key, void *data) {
   START_HOOK(call_id);
-
-  reducer_register(call_id, MAAP_count, key, identity_ptr, reduce_ptr);
-}
-
-CILKSAN_API void
-__csan_llvm_reducer_register_i64(const csi_id_t call_id, const csi_id_t func_id,
-                                 unsigned MAAP_count, const call_prop_t prop,
-                                 void *key, size_t size, void *identity_ptr,
-                                 void *reduce_ptr) {
-  START_HOOK(call_id);
-
-  reducer_register(call_id, MAAP_count, key, identity_ptr, reduce_ptr);
+  switch (type) {
+    case 0: {
+      __reducer_base *rb = static_cast<__reducer_base *>(key);
+      reducer_register(call_id, MAAP_count, key, rb);
+      break;
+    }
+    case 1: {
+      __reducer_callbacks *cb =
+          static_cast<__reducer_callbacks *>(data);
+      reducer_register(call_id, MAAP_count, key, static_cast<__cilk_reduce_fn *>(&cb->reduce));
+      break;
+    }
+    case 2: {
+      void (*reduce)(void *, void *) =
+          reinterpret_cast<void (*)(void *, void *)>(data);
+      reducer_register(call_id, MAAP_count, key, reduce);
+      break;
+    }
+    default:
+      cilksan_assert(false && "Unknown reducer type in reducer_register");
+  }
 }
 
 CILKSAN_API void __csan_llvm_reducer_unregister(const csi_id_t call_id,
@@ -76,14 +90,12 @@ CILKSAN_API void __csan_llvm_reducer_unregister(const csi_id_t call_id,
   check_read_bytes(call_id, MAAP_t::Ref, key, 1);
 }
 
-CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
-                                           const csi_id_t func_id,
-                                           unsigned MAAP_count,
-                                           const call_prop_t prop, void *view,
-                                           void *key, size_t size,
-                                           void *identity_fn, void *reduce_fn) {
+std::pair<void *, hyper_table *>
+hyper_lookup_common(const csi_id_t call_id, const csi_id_t func_id,
+                          unsigned MAAP_count, const call_prop_t prop,
+                          void *view, void *key) {
   if (!CILKSAN_INITIALIZED || !should_check())
-    return view;
+    return {view, nullptr};
   if (__builtin_expect(!call_pc[call_id], false))
     call_pc[call_id] = CALLERPC;
 
@@ -91,7 +103,7 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
     MAAPs.pop();
 
   if (!is_execution_parallel())
-    return view;
+    return {view, nullptr};
 
   if (CilkSanImpl.stealable()) {
     // Get the table of reducer views to update.
@@ -100,22 +112,61 @@ CILKSAN_API void *__csan_llvm_hyper_lookup(const csi_id_t call_id,
     if (void *new_view =
             CilkSanImpl.reducer_lookup(reducer_views, (uintptr_t)key)) {
       DBG_TRACE(REDUCER, "hyper_lookup: found view: %p -> %p\n", key, new_view);
-      return new_view;
+      return {new_view, reducer_views};
     }
-    // Create and return a new reducer view.
-    return CilkSanImpl.create_reducer_view(reducer_views, (uintptr_t)key, size,
-                                           identity_fn, reduce_fn);
+    // Return nullptr for the view and a pointer to the hyper table.  The caller
+    // will create a new view and install it in the hyper table.
+    return {nullptr, reducer_views};
   }
-  return view;
+  return {view, nullptr};
+}
+
+CILKSAN_API void *__csan_llvm_hyper_lookup_0(const csi_id_t call_id,
+                                             const csi_id_t func_id,
+                                             unsigned MAAP_count,
+                                             const call_prop_t prop, void *view,
+                                             __reducer_base *key) {
+  auto result =
+      hyper_lookup_common(call_id, func_id, MAAP_count, prop, view, key);
+  if (result.first || result.second == nullptr)
+    return result.first;
+  // Create and return a new reducer view.
+  return CilkSanImpl.create_reducer_view_0(result.second, key);
 }
 
 CILKSAN_API void *
-__csan_llvm_hyper_lookup_i64(const csi_id_t call_id, const csi_id_t func_id,
-                             unsigned MAAP_count, const call_prop_t prop,
-                             void *view, void *key, size_t size,
-                             void *identity_fn, void *reduce_fn) {
-  return __csan_llvm_hyper_lookup(call_id, func_id, MAAP_count, prop, view, key,
-                                  size, identity_fn, reduce_fn);
+__csan_llvm_hyper_lookup_1(const csi_id_t call_id, const csi_id_t func_id,
+                           unsigned MAAP_count, const call_prop_t prop,
+                           void *view, void *key,
+                           const __reducer_callbacks &callbacks) {
+  auto result =
+      hyper_lookup_common(call_id, func_id, MAAP_count, prop, view, key);
+  if (result.first || result.second == nullptr)
+    return result.first;
+  // Create and return a new reducer view.
+  return CilkSanImpl.create_reducer_view_1(result.second, (uintptr_t)key,
+                                           callbacks);
+}
+
+CILKSAN_API void *__csan_llvm_hyper_lookup_2(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *view, void *key, size_t size,
+    void (*identity_fn)(void *), void (*reduce_fn)(void *, void *)) {
+  auto result =
+      hyper_lookup_common(call_id, func_id, MAAP_count, prop, view, key);
+  if (result.first || result.second == nullptr)
+    return result.first;
+  // Create and return a new reducer view.
+  return CilkSanImpl.create_reducer_view_2(result.second, (uintptr_t)key, size,
+                                           identity_fn, reduce_fn);
+}
+
+CILKSAN_API void *__csan_llvm_hyper_lookup_2_i64(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, void *view, void *key, size_t size,
+    void (*identity_fn)(void *), void (*reduce_fn)(void *, void *)) {
+  return __csan_llvm_hyper_lookup_2(call_id, func_id, MAAP_count, prop, view,
+                                    key, size, identity_fn, reduce_fn);
 }
 
 void CilkSanImpl_t::reduce_local_views() {
@@ -153,21 +204,42 @@ void CilkSanImpl_t::reduce_local_views() {
     hyper_table::bucket b = buckets[i];
     if (!is_valid(b.key))
       continue;
-    if (b.key == (uintptr_t)(b.value.view)) {
+    if (b.key == (uintptr_t)(b.data.view)) {
       holdsLeftmostViews = true;
       continue;
     }
 
     DBG_TRACE(REDUCER,
               "reduce_local_views: found view to reduce at %d: %p -> %p\n", i,
-              (void *)b.key, (void *)b.value.view);
-    // The key is the pointer to the leftmost view.
-    void *left_view = (void *)b.key;
-    reducer_base rb = b.value;
-    rb.reduce_fn(left_view, rb.view);
-    // Delete the right view.
-    free(rb.view);
-    mark_free(rb.view);
+              (void *)b.key, (void *)b.data.view);
+
+    void *left_view = (void *)b.key, *right_view = b.data.view;
+    {
+      // Custom version of hyper_table::bucket::reduce() to reduce view with key
+      // in the same bucket.  The key points to the leftmost view.
+      reducer_data rd = b.data;
+      if (std::holds_alternative<__reducer_base *>(rd.extra)) {
+        __reducer_base *leftmost =
+            static_cast<__reducer_base *>(reinterpret_cast<void *>(b.key));
+        __reducer_base *left_r = leftmost;
+        __reducer_base *right_r = std::get<__reducer_base *>(rd.extra);
+        leftmost->reduce(left_r, right_r);
+        right_r->~__reducer_base();
+      } else if (std::holds_alternative<const __cilk_reduce_fn *>(rd.extra)) {
+        const __cilk_reduce_fn *reduce_fn =
+            std::get<const __cilk_reduce_fn *>(rd.extra);
+        (*reduce_fn)(left_view, right_view);
+      } else {
+        void (*reduce_fn)(void *, void *) =
+            std::get<void (*)(void *, void *)>(rd.extra);
+        reduce_fn(left_view, right_view);
+      }
+      rd.extra = (__reducer_base *)nullptr;
+      rd.view = nullptr;
+    }
+    // Free the right view.
+    free(right_view);
+    mark_free(right_view);
     keysToRemove.push_back(b.key);
   }
   enable_checking();
@@ -182,6 +254,33 @@ void CilkSanImpl_t::reduce_local_views() {
     for (int32_t i = 0; i < keysToRemove.size(); ++i)
       reducer_views->remove(buckets[keysToRemove[i]].key);
   }
+}
+
+void hyper_table::bucket::reduce(bucket *left, bucket *right) {
+    assert(left->data.extra.index() == right->data.extra.index());
+    void *left_view = left->data.view, *right_view = right->data.view;
+    if (std::holds_alternative<__reducer_base *>(left->data.extra)) {
+        __reducer_base *leftmost =
+            static_cast<__reducer_base *>
+            (reinterpret_cast<void *>(left->key));
+        __reducer_base *left_r = std::get<__reducer_base *>(left->data.extra);
+        __reducer_base *right_r =
+            std::get<__reducer_base *>(right->data.extra);
+        leftmost->reduce(left_r, right_r);
+        right_r->~__reducer_base();
+    } else if (std::holds_alternative<const __cilk_reduce_fn *>(left->data.extra)) {
+        const __cilk_reduce_fn *reduce_fn =
+            std::get<const __cilk_reduce_fn *>(left->data.extra);
+        (*reduce_fn)(left_view, right_view);
+    } else {
+        void (*reduce_fn)(void *, void *) =
+            std::get<void (*)(void *, void *)>(left->data.extra);
+        reduce_fn(left_view, right_view);
+    }
+    right->data.extra = (__reducer_base *)nullptr;
+    right->data.view = nullptr;
+    // Free the right view.
+    free(right_view);
 }
 
 hyper_table *
@@ -236,16 +335,16 @@ hyper_table::merge_two_hyper_tables(CilkSanImpl_t *__restrict__ tool,
     } else {
       // Merge the two views in the source and destination buckets, being sure
       // to preserve left-to-right ordering.  Free the right view when done.
-      reducer_base dst_rb = dst_bucket->value;
+      reducer_data dst_rd = dst_bucket->data;
       if (left_dst) {
-        dst_rb.reduce_fn(dst_rb.view, b.value.view);
-        free(b.value.view);
-        tool->mark_free(b.value.view);
+        bucket::reduce(dst_bucket, &b);
+        tool->mark_free(b.data.view);
       } else {
-        dst_rb.reduce_fn(b.value.view, dst_rb.view);
-        free(dst_rb.view);
-        tool->mark_free(dst_rb.view);
-        dst_bucket->value.view = b.value.view;
+        bucket::reduce(&b, dst_bucket);
+        tool->mark_free(dst_rd.view);
+        dst_bucket->data = b.data;
+        b.data.extra = (__reducer_base *)nullptr;
+        b.data.view = nullptr;
       }
     }
   }

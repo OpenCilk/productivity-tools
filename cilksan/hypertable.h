@@ -28,7 +28,13 @@ public:
   struct bucket {
     uintptr_t key = KEY_EMPTY; /* EMPTY, DELETED, or a user-provided pointer. */
     index_t hash = 0; /* hash of the key when inserted into the table. */
-    reducer_base value;
+    reducer_data data;
+
+    static void reduce(bucket *left, bucket *right);
+
+    bool is_empty() const { return key == KEY_EMPTY; }
+    bool is_tombstone() const { return key == KEY_DELETED; }
+    bool is_valid() const { return key != KEY_EMPTY && key != KEY_DELETED; }
 
     void make_tombstone() { key = KEY_DELETED; }
   };
@@ -370,7 +376,7 @@ public:
       // Found the key?  Overwrite that bucket.
       // TODO: Reconsider what to do in this case.
       if (b.key == curr_key) {
-        buckets[i].value = b.value;
+        buckets[i].data = b.data;
         return true;
       }
 

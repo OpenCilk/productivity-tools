@@ -169,33 +169,68 @@ public:
     hyper_table::bucket *b = reducer_views->find(key);
     if (b) {
       assert(key == b->key);
-      return b->value.view;
+      return b->data.view;
     }
     return nullptr;
   }
 
   // Create a new reducer view.
-  void *create_reducer_view(hyper_table *__restrict__ reducer_views,
-                            uintptr_t key, size_t size, void *identity_ptr,
-                            void *reduce_ptr) {
-    __cilk_identity_fn identity = (__cilk_identity_fn)identity_ptr;
-    __cilk_reduce_fn reduce = (__cilk_reduce_fn)reduce_ptr;
+  void *create_reducer_view_0(hyper_table *__restrict__ reducer_views,
+                              __reducer_base *key) {
+    // Create a new view and initialize it with the identity function.
+    size_t size = key->size();
+    void *new_view = malloc(size);
+    DBG_TRACE(REDUCER, "create_reducer_view_0(%p): created view %p -> %p\n",
+              (void *)reducer_views, (void *)key, new_view);
+    mark_alloc(new_view, size);
+    __reducer_base *base = key->identity(new_view);
+    // Insert the new view into the local hypertable.
+    hyper_table::bucket new_bucket = {
+        .key = (uintptr_t)key,
+        .data = {.view = new_view, .extra = base}};
+    [[maybe_unused]] bool success = reducer_views->insert(new_bucket);
+    assert(success && "create_reducer_view failed to insert new reducer.");
 
+    // Return the new view.
+    return new_view;
+  }
+
+  void *create_reducer_view_1(hyper_table *__restrict__ reducer_views,
+                              uintptr_t key,
+                              const __reducer_callbacks &callbacks) {
+    // Create a new view and initialize it with the identity function.
+    void *new_view = malloc(callbacks.size);
+    DBG_TRACE(REDUCER, "create_reducer_view_1(%p): created view %p -> %p\n",
+              (void *)reducer_views, (void *)key, new_view);
+    mark_alloc(new_view, callbacks.size);
+    callbacks.identity(new_view);
+    // Insert the new view into the local hypertable.
+    hyper_table::bucket new_bucket = {
+        .key = (uintptr_t)key,
+        .data = {.view = new_view, .extra = &callbacks.reduce}};
+    [[maybe_unused]] bool success = reducer_views->insert(new_bucket);
+    assert(success && "create_reducer_view failed to insert new reducer.");
+
+    // Return the new view.
+    return new_view;
+  }
+
+  void *create_reducer_view_2(hyper_table *__restrict__ reducer_views,
+                              uintptr_t key, size_t size, void (*identity)(void *),
+                              void (*reduce)(void *, void *)) {
     // Allocate and initialize a new view.  Make sure the shadow memory is clear
     // for that allocation.
     void *new_view = malloc(size);
-    DBG_TRACE(REDUCER, "create_reducer_view(%p): created view %p -> %p\n",
+    DBG_TRACE(REDUCER, "create_reducer_view_2(%p): created view %p -> %p\n",
               (void *)reducer_views, (void *)key, new_view);
     mark_alloc(new_view, size);
     identity(new_view);
 
     // Insert the view into the table of reducer_views.
     hyper_table::bucket new_bucket = {
-        .key = (uintptr_t)key,
-        .value = {.view = new_view, .reduce_fn = reduce}};
-    bool success = reducer_views->insert(new_bucket);
+        .key = (uintptr_t)key, .data = {.view = new_view, .extra = reduce}};
+    [[maybe_unused]] bool success = reducer_views->insert(new_bucket);
     assert(success && "create_reducer_view failed to insert new reducer.");
-    (void)success;
 
     // Return the new view.
     return new_view;
