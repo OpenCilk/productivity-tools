@@ -855,6 +855,22 @@ __csan___cxa_atexit(const csi_id_t call_id, const csi_id_t func_id,
     MAAPs.pop();
 }
 
+CILKSAN_API void __csan___cxa_throw(const csi_id_t call_id,
+                                    const csi_id_t func_id, unsigned MAAP_count,
+                                    const call_prop_t prop,
+                                    void *thrown_exception,
+                                    std::type_info *tinfo,
+                                    void (*dest)(void *)) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+}
+
 CILKSAN_API void __csan___isoc99_scanf(const csi_id_t call_id,
                                        const csi_id_t func_id,
                                        unsigned MAAP_count,
@@ -1467,6 +1483,12 @@ CILKSAN_API void __csan_execvpe(const csi_id_t call_id, const csi_id_t func_id,
     return;
 
   check_read_bytes(call_id, filename_MAAPVal, filename, strlen(filename) + 1);
+}
+
+CILKSAN_API void __csan_exit(const csi_id_t call_id, const csi_id_t func_id,
+                             unsigned MAAP_count, const call_prop_t prop,
+                             int exit_code) {
+  return;
 }
 
 CILKSAN_API void __csan_expf(const csi_id_t call_id, const csi_id_t func_id,
