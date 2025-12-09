@@ -6,20 +6,13 @@
 import os
 import platform
 import re
+import shlex
 import subprocess
 import json
 
 import lit.formats
 import lit.util
 
-# Get shlex.quote if available (added in 3.3), and fall back to pipes.quote if
-# it's not available.
-try:
-  import shlex
-  sh_quote = shlex.quote
-except:
-  import pipes
-  sh_quote = pipes.quote
 
 def find_compiler_libdir():
   """
@@ -474,21 +467,51 @@ else:
   config.substitutions.append( ('%push_to_device', "echo ") )
   config.substitutions.append( ('%adb_shell', "echo ") )
 
-if config.host_os == 'Linux':
-  # detect whether we are using glibc, and which version
-  # NB: 'ldd' is just one of the tools commonly installed as part of glibc
-  ldd_ver_cmd = subprocess.Popen(['ldd', '--version'],
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL,
-                                 env={'LANG': 'C'})
-  sout, _ = ldd_ver_cmd.communicate()
-  ver_lines = sout.splitlines()
-  if not config.android and len(ver_lines) and ver_lines[0].startswith(b"ldd "):
-    from distutils.version import LooseVersion
-    ver = LooseVersion(ver_lines[0].split()[-1].decode())
-    for required in ["2.27", "2.30", "2.34", "2.37"]:
-      if ver >= LooseVersion(required):
-        config.available_features.add("glibc-" + required)
+if config.host_os == "Linux" and not config.android:
+    # detect whether we are using glibc, and which version
+    cmd_args = [
+        config.clang.strip(),
+        f"--target={config.target_triple}",
+        "-xc",
+        "-",
+        "-o",
+        "-",
+        "-dM",
+        "-E",
+    ] + shlex.split(config.target_cflags)
+    cmd = subprocess.Popen(
+        cmd_args,
+        stdout=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env={"LANG": "C"},
+    )
+    try:
+        sout, _ = cmd.communicate(b"#include <features.h>")
+        m = dict(re.findall(r"#define (__GLIBC__|__GLIBC_MINOR__) (\d+)", str(sout)))
+        major = int(m["__GLIBC__"])
+        minor = int(m["__GLIBC_MINOR__"])
+        any_glibc = False
+        for required in [
+            (2, 19),
+            (2, 27),
+            (2, 30),
+            (2, 33),
+            (2, 34),
+            (2, 37),
+            (2, 38),
+            (2, 40),
+        ]:
+            if (major, minor) >= required:
+                (required_major, required_minor) = required
+                config.available_features.add(
+                    f"glibc-{required_major}.{required_minor}"
+                )
+                any_glibc = True
+            if any_glibc:
+                config.available_features.add("glibc")
+    except:
+        pass
 
 sancovcc_path = os.path.join(config.llvm_tools_dir, "sancov")
 if os.path.exists(sancovcc_path):
@@ -688,15 +711,15 @@ if config.host_os == 'Darwin':
   config.substitutions.append((
     "%get_pid_from_output",
     "{} {}/get_pid_from_output.py".format(
-      sh_quote(config.python_executable),
-      sh_quote(get_ios_commands_dir())
+      shlex.quote(config.python_executable),
+      shlex.quote(get_ios_commands_dir())
     ))
   )
   config.substitutions.append(
     ("%print_crashreport_for_pid",
     "{} {}/print_crashreport_for_pid.py".format(
-      sh_quote(config.python_executable),
-      sh_quote(get_ios_commands_dir())
+      shlex.quote(config.python_executable),
+      shlex.quote(get_ios_commands_dir())
     ))
   )
 
