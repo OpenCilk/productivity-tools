@@ -28,8 +28,7 @@
 #if SERIAL_TOOL
 FILE *err_io = stderr;
 #else // !SERIAL_TOOL
-#include <cilk/cilk_api.h>
-#include <cilk/ostream_reducer.h>
+#include <cilk/ostream_reducer>
 using out_reducer = cilk::ostream_reducer<char>;
 #endif // SERIAL_TOOL
 

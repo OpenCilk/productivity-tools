@@ -17,7 +17,6 @@
 
 #include <iostream>
 #include <sstream>
-#include <cilk/cilk.h>
 #include <chrono>
 #include <pthread.h>
 #include <typeinfo>
@@ -27,8 +26,7 @@
 #include <vector>
 #include <type_traits>
 #include <random>
-
-#include <cilk/opadd_reducer.h>
+#include <cilk/opadd_reducer>
 #include <cilk/cilk_api.h>
 
 #include <cilk/cilksan.h>

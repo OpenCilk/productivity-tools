@@ -32,21 +32,19 @@
  */
 
 
-#include <iostream>
-#include <sstream>
-#include <cilk/cilk.h>
-#include <chrono>
-#include <pthread.h>
-#include <typeinfo>
-#include <numeric>
 #include <algorithm>
+#include <chrono>
+#include <cilk/opadd_reducer>
+#include <iostream>
 #include <iterator>
-#include <vector>
-#include <type_traits>
+#include <numeric>
+#include <pthread.h>
 #include <random>
+#include <sstream>
+#include <type_traits>
+#include <typeinfo>
 #include <unistd.h>
-
-#include <cilk/opadd_reducer.h>
+#include <vector>
 
 #ifdef WLS
 #include <cilk/cilk_api.h>

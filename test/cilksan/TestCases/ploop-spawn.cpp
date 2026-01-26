@@ -1,11 +1,9 @@
 // RUN: %clangxx_cilksan -fopencilk -Og %s -o %t
 // RUN: %run %t 2>&1 | FileCheck %s
+#include <cilk/opadd_reducer>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
-
-#include <cilk/cilk.h>
-#include <cilk/opadd_reducer.h>
 
 template<typename T> void sum(std::vector<T> &v) {
   T sum_racy = 0;

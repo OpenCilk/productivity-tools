@@ -1,12 +1,11 @@
 // RUN: %clangxx_cilksan -fopencilk -Og %s -o %t
 // RUN: %run %t 2>&1 | FileCheck %s
 
-#include <stdio.h>
-#include <cilk/cilk.h>
-#include <cilk/opadd_reducer.h>
 #include <chrono>
-#include <thread>
+#include <cilk/opadd_reducer>
 #include <pthread.h>
+#include <stdio.h>
+#include <thread>
 
 int main() {
   cilk::opadd_reducer<int> sum = 0;
