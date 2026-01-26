@@ -55,7 +55,7 @@ private:
   static constexpr uintptr_t LINE_IDX_MASK = LINE_MASK ^ PAGE_MASK;
 
   // Helper methods to get the indices into the dictionary from a given address.
-  // We used these helper methods, rather than a bitfiled struct, because the
+  // We used these helper methods, rather than a bitfield struct, because the
   // language standard provides too few guarantees on the order of fields in a
   // bitfield struct.
   __attribute__((always_inline)) static uintptr_t byte(uintptr_t addr) {
@@ -156,7 +156,7 @@ private:
     Chunk_t() = delete;
   };
 
-  // Helper methods to check if chunk startsat a line or page boundary.
+  // Helper methods to check if chunk starts at a line or page boundary.
   __attribute__((always_inline)) static bool isLineStart(Chunk_t chunk) {
     return isLineStart(chunk.addr);
   }
@@ -312,7 +312,7 @@ private:
     void refine(unsigned newLgGrainsize) {
       cilksan_assert(newLgGrainsize < getLgGrainsize() &&
                      "Invalid grainsize for refining Line_t.");
-      // If Data hasn't been materialzed yet, then just update LgGrainsize.
+      // If Data hasn't been materialized yet, then just update LgGrainsize.
       if (!isMaterialized()) {
         setLgGrainsize(newLgGrainsize);
         return;
@@ -382,7 +382,7 @@ private:
       // Get the grainsize of the access.
       unsigned AccessedLgGrainsize = Accessed.getLgGrainsize();
 
-      // If we're overwritting the entire line, then we can coalesce the line.
+      // If we're overwriting the entire line, then we can coalesce the line.
       if (AccessedLgGrainsize == LG_LINE_SIZE) {
         // Reset the line if necessary.
         if (getLgGrainsize() != LG_LINE_SIZE)

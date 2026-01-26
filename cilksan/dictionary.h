@@ -48,7 +48,7 @@ public:
   csi_id_t ver_acc_id = UNKNOWN_CSI_ACC_ID;
 
   // Default constructor
-  MemoryAccess_t() {}
+  MemoryAccess_t() = default;
   MemoryAccess_t(DS_t *func, version_t version, csi_id_t acc_id, MAType_t type)
       : ver_func(makeVerFunc(func, version)),
         ver_acc_id(makeTypedID(acc_id, type)) {
@@ -120,7 +120,7 @@ public:
 
   // Set the fields of this MemoryAccess_t directly.  This method is used to
   // avoid unnecessary updates to reference counts that may be incurred by using
-  // the copy contructor.
+  // the copy constructor.
   void set(DS_t *func, version_t version, csi_id_t acc_id, MAType_t type) {
     DS_t *this_func = getFuncFromVerFunc();
     if (this_func != func) {
@@ -233,7 +233,7 @@ public:
   //   }
   // }
 
-  // Logic to check if the given previous MemoryAccess_t is logically in
+  // Check if the given previous MemoryAccess_t is logically in
   // parallel with the current strand.
   __attribute__((always_inline)) static bool
   previousAccessInParallel(MemoryAccess_t *PrevAccess, const FrameData_t *f) {

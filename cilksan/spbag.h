@@ -80,14 +80,14 @@ public:
     if (!that->get_ds())
       return;
 
-    // cilksan_assert(that->_ds && "No disjointset node with that bag.");
+    // cilksan_assert(that->_ds && "No disjoint set node with that bag.");
     if (!_ds) {
       that->get_ds()->inc_ref_count();
       _ds = that->get_ds();
       return;
     }
 
-    cilksan_assert(_ds && "No disjointset node with this bag.");
+    cilksan_assert(_ds && "No disjoint set node with this bag.");
     set_ds(_ds->combine(that->get_ds()));
   }
 };

@@ -505,7 +505,7 @@ void __csanrt_unit_init(
 
   acquired = 1;
   assert(lock == acquired);
-  int res = lock.compare_exchange_strong(
+  [[maybe_unused]] int res = lock.compare_exchange_strong(
       acquired, 0, std::memory_order::memory_order_seq_cst);
   assert(res);
 }

@@ -15,9 +15,9 @@ static LockID_t next_lock_id = atomic_lock_id + 1;
 // Map from memory addresses to locks allocated at those locations.
 static AddrMap_t<LockID_t> lock_ids;
 
-static inline void emit_acquire_release_warning(bool is_aquire,
+static inline void emit_acquire_release_warning(bool is_acquire,
                                                 const void *mutex) {
-  if (is_aquire)
+  if (is_acquire)
     fprintf(err_io,
             "Cilksan Warning: Cannot model lock-acquire of unknown lock at "
             "location %p\n",

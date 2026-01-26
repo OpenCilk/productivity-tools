@@ -119,7 +119,7 @@ public:
       return _list;
     }
 
-    // The length of the list. Automically reset to 0 on unlock().
+    // The length of the list. Automatically reset to 0 on unlock().
     __attribute__((always_inline)) int length() { return _length; }
 
     // Crashes the program if lock() is called a second time before unlock().
@@ -571,7 +571,7 @@ public:
         FullSlabs = Slab;
       }
 
-      cilksan_assert(DJSet && "No disjoinst set found.");
+      cilksan_assert(DJSet && "No disjoint set found.");
       return DJSet;
     }
 

@@ -71,7 +71,7 @@ public:
 
 // Top-level Cilkscale tool.
 static CilkscaleImplT *createTool(void) {
-  // Ordered dynamic initalization should ensure that it's safe to create the
+  // Ordered dynamic initialization should ensure that it's safe to create the
   // tool.
   return new CilkscaleImplT(getenv("CILKSCALE_OUT"));
 }

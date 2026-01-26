@@ -1128,7 +1128,7 @@ static std::map<uintptr_t, size_t> pages_to_clear;
 // dlsym uses some of the memory functions we are trying to interpose, which
 // means that calling dlsym directly will lead to infinite recursion and a
 // segfault.  Fortunately, dlsym can make do with memory-allocation functions
-// returning NULL, so we return NULL when we detect this inifinite recursion.
+// returning NULL, so we return NULL when we detect this infinite recursion.
 //
 // This trick seems questionable, but it also seems to be standard practice.
 // It's the same trick used by memusage.c in glibc, and there's little
