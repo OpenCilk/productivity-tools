@@ -219,6 +219,16 @@ function(add_cilktools_runtime name type)
         format_object_libs(sources_${libname} ${os} ${LIB_OBJECT_LIBS})
         get_cilktools_output_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} output_dir_${libname})
         get_cilktools_install_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} install_dir_${libname})
+        if ("-fopencilk" IN_LIST LIB_CFLAGS AND TARGET cheetah)
+          foreach(arch ${LIB_ARCHS_${libname}})
+            foreach(src ${LIB_SOURCES})
+              # Add the OpenCilk ABI bitcode file as a source object dependency, so that
+              # this library will be rebuilt if the bitcode file changes.
+              set_property(SOURCE ${src} APPEND PROPERTY
+                           OBJECT_DEPENDS ${output_dir_${libname}}/libopencilk-abi_${os}-${arch}.bc)
+            endforeach()
+          endforeach()
+        endif()
       endif()
     endforeach()
   else()
@@ -249,6 +259,14 @@ function(add_cilktools_runtime name type)
       set(extra_cflags_${libname} ${TARGET_${arch}_CFLAGS} ${NO_LTO_FLAGS} ${LIB_CFLAGS})
       get_cilktools_output_dir(${arch} output_dir_${libname})
       get_cilktools_install_dir(${arch} install_dir_${libname})
+      if ("-fopencilk" IN_LIST LIB_CFLAGS AND TARGET cheetah)
+        foreach(src ${LIB_SOURCES})
+          # Add the OpenCilk ABI bitcode file as a source object dependency, so that
+          # this library will be rebuilt if the bitcode file changes.
+          set_property(SOURCE ${src} APPEND PROPERTY
+                       OBJECT_DEPENDS ${output_dir_${libname}}/libopencilk-abi.bc)
+        endforeach()
+      endif()
     endforeach()
   endif()
 
@@ -434,16 +452,24 @@ function(add_cilktools_bitcode name)
       if(HAS_EXTRA_CFLAGS AND NOT "${os}" MATCHES "^(osx)$")
         list(REMOVE_ITEM LIB_CFLAGS "-msse3")
       endif()
-      set(libname "${name}_${os}")
-      list_intersect(LIB_ARCHS_${libname} DARWIN_${os}_ARCHS LIB_ARCHS)
-      if(LIB_ARCHS_${libname})
-        list(APPEND libnames ${libname})
-        set(extra_cflags_${libname} ${DARWIN_${os}_CFLAGS} ${LIB_CFLAGS})
+      set(libnamebase "${name}_${os}")
+      list_intersect(LIB_ARCHS_${libnamebase} DARWIN_${os}_ARCHS LIB_ARCHS)
+      foreach(arch ${LIB_ARCHS_${libnamebase}})
+        set(libname "${libnamebase}-${arch}")
         set(output_name_${libname} ${libname}${CILKTOOLS_OS_SUFFIX})
         set(sources_${libname} ${LIB_SOURCES})
+        list(APPEND libnames ${libname})
+        set(extra_cflags_${libname} ${DARWIN_${os}_CFLAGS} ${LIB_CFLAGS})
+        set(${libname}_arch ${arch})
         get_cilktools_output_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} output_dir_${libname})
         get_cilktools_install_dir(${CILKTOOLS_DEFAULT_TARGET_ARCH} install_dir_${libname})
-      endif()
+        # Handle the dependence on cheetah specially
+        if ("-fopencilk" IN_LIST LIB_CFLAGS AND TARGET cheetah)
+          # Add the OpenCilk ABI bitcode file as a source object dependency, so that
+          # this library will be rebuilt if the bitcode file changes.
+          set(opencilk_abi_dep_${libname} ${output_dir_${libname}}/libopencilk-abi_${os}-${arch}.bc)
+        endif()
+      endforeach()
     endforeach()
   else()
     foreach(arch ${LIB_ARCHS})
@@ -459,6 +485,12 @@ function(add_cilktools_bitcode name)
       set(extra_cflags_${libname} ${TARGET_${arch}_CFLAGS} ${LIB_CFLAGS})
       get_cilktools_output_dir(${arch} output_dir_${libname})
       get_cilktools_install_dir(${arch} install_dir_${libname})
+      # Handle the dependence on cheetah specially
+      if ("-fopencilk" IN_LIST LIB_CFLAGS AND TARGET cheetah)
+        # Add the OpenCilk ABI bitcode file as a source object dependency, so that
+        # this library will be rebuilt if the bitcode file changes.
+        set(opencilk_abi_dep_${libname} ${output_dir_${libname}}/libopencilk-abi.bc)
+      endif()
     endforeach()
   endif()
 
@@ -483,7 +515,6 @@ function(add_cilktools_bitcode name)
     else()
       set(COMPONENT_OPTION COMPONENT ${libname})
     endif()
-    set(output_file_${libname} ${output_name_${libname}}.bc)
     # Add compile command for bitcode file.
     add_library(${libname}_compile OBJECT ${LIB_SOURCES})
     target_include_directories(${libname}_compile PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
@@ -502,7 +533,7 @@ function(add_cilktools_bitcode name)
     add_custom_command(
       OUTPUT ${output_dir_${libname}}/${output_file_${libname}}
       COMMAND ${LLVM_LINK} -o ${output_dir_${libname}}/${output_file_${libname}} $<TARGET_OBJECTS:${libname}_compile>
-      DEPENDS ${libname}_compile $<TARGET_OBJECTS:${libname}_compile>
+      DEPENDS ${libname}_compile $<TARGET_OBJECTS:${libname}_compile> ${opencilk_abi_dep_${libname}}
       COMMENT "Building bitcode ${output_file_${libname}}"
       VERBATIM COMMAND_EXPAND_LISTS)
     add_custom_target(${libname} DEPENDS ${output_dir_${libname}}/${output_file_${libname}})
