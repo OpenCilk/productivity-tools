@@ -445,7 +445,8 @@ CSIRT_API void __csirt_unit_init(
 
     acquired = 1;
     assert(lock == acquired);
-    int res = atomic_compare_exchange_strong(&lock, &acquired, 0);
+    int res __attribute__((unused)) =
+        atomic_compare_exchange_strong(&lock, &acquired, 0);
     assert(res);
 }
 
