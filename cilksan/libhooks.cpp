@@ -40,32 +40,69 @@ CILKSAN_API void __csan_default_libhook(const csi_id_t call_id,
 ///////////////////////////////////////////////////////////////////////////
 // Instrumentation for LLVM intrinsics
 
+// Generic type for vector data on the stack.
+
 template <typename EL_T, int NUM_ELS> struct vec_t {
   using ELEMENT_T = EL_T;
   static constexpr unsigned NUM_ELEMENTS = NUM_ELS;
   EL_T els[NUM_ELS];
 };
 
-using v2f32 = vec_t<float, 2>;
-using v2f64 = vec_t<double, 2>;
-using v2i32 = vec_t<int32_t, 2>;
+// Macros for generating Cilksan hooks for vector intrinsics
 
-using v4f32 = vec_t<float, 4>;
-using v4f64 = vec_t<double, 4>;
-using v4i32 = vec_t<int32_t, 4>;
-using v4i64 = vec_t<int64_t, 4>;
-using v4ptrs = vec_t<uintptr_t, 4>;
+// Each vector size defines the number of elements, type of mask, and value of a
+// full mask.
+#define VECSIZES(WITH, _)                                                      \
+  _(WITH, 2, uint8_t, 0x3)                                                     \
+  _(WITH, 3, uint8_t, 0x7)                                                     \
+  _(WITH, 4, uint8_t, 0xf)                                                     \
+  _(WITH, 6, uint8_t, 0x3f)                                                    \
+  _(WITH, 8, uint8_t, 0xff)
 
-using v8f32 = vec_t<float, 8>;
-using v8f64 = vec_t<double, 8>;
-using v8i8 = vec_t<int8_t, 8>;
-using v8i16 = vec_t<int16_t, 8>;
-using v8i32 = vec_t<int32_t, 8>;
-using v8ptrs = vec_t<uintptr_t, 8>;
+// Vectors of 16, 32, and 64 elements are handled specially, to handle practical
+// restrictions on their element types.
+#define VEC16SIZES(WITH, _) _(WITH, 16, uint16_t, (uint16_t)(-1))
+#define VEC32SIZES(WITH, _) _(WITH, 32, uint32_t, (uint32_t)(-1))
+#define VEC64SIZES(WITH, _) _(WITH, 64, uint64_t, (uint64_t)(-1))
 
-using v16i8 = vec_t<int8_t, 16>;
-using v32i8 = vec_t<int8_t, 32>;
+// Each vector element type encodes the LLVM name of that element type and the
+// corresponding C type.
+#define VECELTYPES(WITH, MASKTY, MASK, _)                                      \
+  _(WITH, i8, int8_t, MASKTY, MASK)                                            \
+  _(WITH, i16, int16_t, MASKTY, MASK)                                          \
+  _(WITH, i32, int32_t, MASKTY, MASK)                                          \
+  _(WITH, i64, int64_t, MASKTY, MASK)                                          \
+  _(WITH, f32, float, MASKTY, MASK)                                            \
+  _(WITH, f64, double, MASKTY, MASK)                                           \
+  _(WITH, p0, uintptr_t, MASKTY, MASK)
 
+// Vectors of 16, 32, and 64 elements are handled specially, to handle practical
+// restrictions on their element types.
+#define VEC16ELTYPES(WITH, MASKTY, MASK, _)                                    \
+  _(WITH, i8, int8_t, MASKTY, MASK)                                            \
+  _(WITH, i16, int16_t, MASKTY, MASK)                                          \
+  _(WITH, i32, int32_t, MASKTY, MASK)                                          \
+  _(WITH, f32, float, MASKTY, MASK)                                            \
+  _(WITH, p0, uintptr_t, MASKTY, MASK)
+
+#define VEC32ELTYPES(WITH, MASKTY, MASK, _)                                    \
+  _(WITH, i8, int8_t, MASKTY, MASK)                                            \
+  _(WITH, i16, int16_t, MASKTY, MASK)
+
+#define VEC64ELTYPES(WITH, MASKTY, MASK, _) _(WITH, i8, int8_t, MASKTY, MASK)
+
+// Mutually recursive macros for generating vector types for Cilksan hooks.
+#define MAKEVECTYPE(SZ, ELTY, CTY, MASKTY, MASK)                               \
+  using v##SZ##ELTY = vec_t<CTY, SZ>;
+#define VECTYPE(W, SZ, MASKTY, MASK) W(SZ, MASKTY, MASK, MAKEVECTYPE)
+
+// Generate the vector types for Cilksan hooks.
+VECSIZES(VECELTYPES, VECTYPE)
+VEC16SIZES(VEC16ELTYPES, VECTYPE)
+VEC32SIZES(VEC32ELTYPES, VECTYPE)
+VEC64SIZES(VEC64ELTYPES, VECTYPE)
+
+// Generic Cilksan logic for masked vector loads and stores.
 template <typename VEC_T, unsigned NUM_ELS, typename MASK_T, MASK_T full_mask,
           bool is_load>
 __attribute__((always_inline)) static void
@@ -107,70 +144,47 @@ generic_masked_load_store(const csi_id_t call_id, unsigned MAAP_count,
     }
 }
 
-CILKSAN_API void __csan_llvm_masked_load_v4i32_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i32 *result, v4i32 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v4i32, 4, uint8_t, 0x0f, true>(
-      call_id, MAAP_count, prop, result, ptr, alignment, mask);
-}
+// Mutually recursive macros for generating Cilksan hooks for LLVM masked vector
+// load intrinsics.
+#define MAKEMASKEDLOADHOOK(SZ, ELTY, CTY, MASKTY, MASK)                        \
+  CILKSAN_API void __csan_llvm_masked_load_v##SZ##ELTY##_p0(                   \
+      const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,     \
+      const call_prop_t prop, v##SZ##ELTY *result, v##SZ##ELTY *ptr,           \
+      int32_t alignment, MASKTY *mask) {                                      \
+    generic_masked_load_store<v##SZ##ELTY, SZ, MASKTY, MASK, true>(            \
+        call_id, MAAP_count, prop, result, ptr, alignment, mask);              \
+  }
 
-CILKSAN_API void __csan_llvm_masked_store_v4i32_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i32 *val, v4i32 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v4i32, 4, uint8_t, 0x0f, false>(
-      call_id, MAAP_count, prop, val, ptr, alignment, mask);
-}
+#define MASKEDLOADHOOKS(W, SZ, MASKTY, MASK)                                   \
+  W(SZ, MASKTY, MASK, MAKEMASKEDLOADHOOK)
 
-CILKSAN_API void __csan_llvm_masked_load_v4i64_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i64 *result, v4i64 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v4i64, 4, uint8_t, 0x0f, true>(
-      call_id, MAAP_count, prop, result, ptr, alignment, mask);
-}
+// Mutually recursive macros for generating Cilksan hooks for LLVM masked vector
+// store intrinsics.
+#define MAKEMASKEDSTOREHOOK(SZ, ELTY, CTY, MASKTY, MASK)                       \
+  CILKSAN_API void __csan_llvm_masked_store_v##SZ##ELTY##_p0(                  \
+      const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,     \
+      const call_prop_t prop, v##SZ##ELTY *val, v##SZ##ELTY *ptr,              \
+      int32_t alignment, MASKTY *mask) {                                       \
+    generic_masked_load_store<v##SZ##ELTY, SZ, MASKTY, MASK, false>(           \
+        call_id, MAAP_count, prop, val, ptr, alignment, mask);                 \
+  }
 
-CILKSAN_API void __csan_llvm_masked_store_v4i64_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i64 *val, v4i64 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v4i64, 4, uint8_t, 0x0f, false>(
-      call_id, MAAP_count, prop, val, ptr, alignment, mask);
-}
+#define MASKEDSTOREHOOKS(W, SZ, MASKTY, MASK)                                   \
+  W(SZ, MASKTY, MASK, MAKEMASKEDSTOREHOOK)
 
-CILKSAN_API void __csan_llvm_masked_load_v8i32_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8i32 *result, v8i32 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v8i32, 8, uint8_t, 0xff, true>(
-      call_id, MAAP_count, prop, result, ptr, alignment, mask);
-}
+// Generate Cilksan hooks for LLVM masked vector load intrinsics.
+VECSIZES(VECELTYPES, MASKEDLOADHOOKS)
+VEC16SIZES(VEC16ELTYPES, MASKEDLOADHOOKS)
+VEC32SIZES(VEC32ELTYPES, MASKEDLOADHOOKS)
+VEC64SIZES(VEC64ELTYPES, MASKEDLOADHOOKS)
 
-CILKSAN_API void __csan_llvm_masked_store_v8i32_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8i32 *val, v8i32 *ptr, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_load_store<v8i32, 8, uint8_t, 0xff, false>(
-      call_id, MAAP_count, prop, val, ptr, alignment, mask);
-}
+// Generate Cilksan hooks for LLVM masked vector store intrinsics.
+VECSIZES(VECELTYPES, MASKEDSTOREHOOKS)
+VEC16SIZES(VEC16ELTYPES, MASKEDSTOREHOOKS)
+VEC32SIZES(VEC32ELTYPES, MASKEDSTOREHOOKS)
+VEC64SIZES(VEC64ELTYPES, MASKEDSTOREHOOKS)
 
-CILKSAN_API void __csan_llvm_masked_load_v16i8_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v16i8 *result, v16i8 *ptr, int32_t alignment,
-    uint16_t *mask) {
-  generic_masked_load_store<v16i8, 16, uint16_t, (uint16_t)(-1), true>(
-      call_id, MAAP_count, prop, result, ptr, alignment, mask);
-}
-
-CILKSAN_API void __csan_llvm_masked_load_v32i8_p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v32i8 *result, v32i8 *ptr, int32_t alignment,
-    uint32_t *mask) {
-  generic_masked_load_store<v32i8, 32, uint32_t, (uint32_t)(-1), true>(
-      call_id, MAAP_count, prop, result, ptr, alignment, mask);
-}
-
+// Generic Cilksan logic for masked vector gathers and scatters.
 template <typename VEC_T, unsigned NUM_ELS, typename MASK_T, bool is_load>
 __attribute__((always_inline)) static void
 generic_masked_gather_scatter(const csi_id_t call_id, unsigned MAAP_count,
@@ -200,86 +214,44 @@ generic_masked_gather_scatter(const csi_id_t call_id, unsigned MAAP_count,
     }
 }
 
-CILKSAN_API void __csan_llvm_masked_gather_v4f64_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4f64 *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4f64, 4, uint8_t, true>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+// Mutually recursive macros for generating Cilksan hooks for LLVM masked vector
+// gather intrinsics.
+#define MAKEGATHERHOOK(SZ, ELTY, CTY, MASKTY, MASK)                                          \
+  CILKSAN_API void __csan_llvm_masked_gather_v##SZ##ELTY##_v##SZ##p0(          \
+      const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,     \
+      const call_prop_t prop, v##SZ##ELTY *val, v##SZ##p0 *addrs,              \
+      int32_t alignment, uint8_t *mask) {                                      \
+    generic_masked_gather_scatter<v##SZ##ELTY, SZ, uint8_t, true>(             \
+        call_id, MAAP_count, prop, val, addrs, alignment, mask);               \
+  }
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4f64_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4f64 *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4f64, 4, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+#define GATHERHOOKS(W, SZ, MASKTY, MASK) W(SZ, MASKTY, MASK, MAKEGATHERHOOK)
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4i32_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i32 *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4i32, 4, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+// Mutually recursive macros for generating Cilksan hooks for LLVM masked vector
+// scatter intrinsics.
+#define MAKESCATTERHOOK(SZ, ELTY, CTY, MASKTY, MASK)                                         \
+  CILKSAN_API void __csan_llvm_masked_scatter_v##SZ##ELTY##_v##SZ##p0(         \
+      const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,     \
+      const call_prop_t prop, v##SZ##ELTY *val, v##SZ##p0 *addrs,              \
+      int32_t alignment, uint8_t *mask) {                                      \
+    generic_masked_gather_scatter<v##SZ##ELTY, SZ, uint8_t, false>(            \
+        call_id, MAAP_count, prop, val, addrs, alignment, mask);               \
+  }
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4i64_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4i64 *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4i64, 4, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+#define SCATTERHOOKS(W, SZ, MASKTY, MASK) W(SZ, MASKTY, MASK, MAKESCATTERHOOK)
 
-CILKSAN_API void __csan_llvm_masked_gather_v4p0_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4ptrs *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4ptrs, 4, uint8_t, true>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+// Generate Cilksan hooks for LLVM masked vector gather intrinsics.
+VECSIZES(VECELTYPES, GATHERHOOKS)
+VEC16SIZES(VEC16ELTYPES, GATHERHOOKS)
 
-CILKSAN_API void __csan_llvm_masked_scatter_v4p0_v4p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v4ptrs *val, v4ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v4ptrs, 4, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+// Generate Cilksan hooks for LLVM masked vector scatter intrinsics.
+VECSIZES(VECELTYPES, SCATTERHOOKS)
+VEC16SIZES(VEC16ELTYPES, SCATTERHOOKS)
 
-CILKSAN_API void __csan_llvm_masked_gather_v8f64_v8p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8f64 *val, v8ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v8f64, 8, uint8_t, true>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
+// TODO: See if LLVM masked vector gathers and scatters for larger vector sizes
+// occur in practice.
 
-CILKSAN_API void __csan_llvm_masked_scatter_v8f64_v8p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8f64 *val, v8ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v8f64, 8, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
-
-CILKSAN_API void __csan_llvm_masked_gather_v8i32_v8p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8i32 *result, v8ptrs *addrs, int32_t alignment,
-    uint8_t *mask, v8i32 *passthru) {
-  generic_masked_gather_scatter<v8i32, 8, uint8_t, true>(
-      call_id, MAAP_count, prop, result, addrs, alignment, mask);
-}
-
-CILKSAN_API void __csan_llvm_masked_scatter_v8i32_v8p0(
-    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
-    const call_prop_t prop, v8i32 *val, v8ptrs *addrs, int32_t alignment,
-    uint8_t *mask) {
-  generic_masked_gather_scatter<v8i32, 8, uint8_t, false>(
-      call_id, MAAP_count, prop, val, addrs, alignment, mask);
-}
-
+// Generic logic for x86-specific vector gather and scatter LLVM intrinsics.
 template <typename VEC_T, unsigned NUM_ELS, typename IDX_T, bool is_load>
 __attribute__((always_inline)) static void
 generic_x86_gather_scatter(const csi_id_t call_id, unsigned MAAP_count,
@@ -450,7 +422,7 @@ __csan_llvm_aarch64_stxr_p0(const csi_id_t call_id, const csi_id_t func_id,
 // https://developer.arm.com/documentation/102159/0400/Load-and-store---data-structures.
 //
 // TODO: Add support for ld*r, ld*lane, st*r, and st*lane intrinsics,
-// which access less memory and either replicate the result of
+// which access less memory and either replicate the result or
 // populate only an individual vector lane.
 
 template <typename VEC_T, unsigned NUM>
