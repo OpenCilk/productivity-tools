@@ -326,6 +326,113 @@ CILKSAN_API void __csan_llvm_x86_avx2_gather_d_pd_256(
       call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
 }
 
+// Generic logic for x86-specific avx512 vector gather and scatter LLVM
+// intrinsics.
+template <typename VEC_T, unsigned NUM_ELS, typename IDX_T, typename MASK_T,
+          bool is_load>
+__attribute__((always_inline)) static void
+generic_x86_avx512_mask_gather_scatter(const csi_id_t call_id,
+                                       unsigned MAAP_count,
+                                       const call_prop_t prop, VEC_T *val,
+                                       VEC_T *vbase, void *base, IDX_T *index,
+                                       MASK_T *mask, int32_t scale) {
+  using EL_T = typename VEC_T::ELEMENT_T;
+  static_assert(NUM_ELS == VEC_T::NUM_ELEMENTS,
+                "Mismatch between vector size and num-elements parameter.");
+  static_assert(sizeof(VEC_T) == sizeof(EL_T) * NUM_ELS,
+                "Vector type has unexpected size.");
+  static_assert(
+      NUM_ELS <= IDX_T::NUM_ELEMENTS,
+      "Mismatch between index-vector size and num-elements parameter.");
+
+  START_HOOK(call_id);
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
+
+  if (!is_execution_parallel())
+    return;
+
+  // Compute the addresses accessed.
+  vec_t<uintptr_t, NUM_ELS> addrs;
+  for (unsigned i = 0; i < NUM_ELS; ++i)
+    addrs.els[i] = (uintptr_t)base + vbase->els[i] + (index->els[i] * scale);
+
+  for (unsigned i = 0; i < NUM_ELS; ++i)
+    // Conditionality is specified by the most significant bit of each data
+    // element of the mask register.
+    if (*mask & ((MASK_T)(1) << i)) {
+      if (is_load)
+        check_read_bytes(call_id, MAAP_t::ModRef, addrs.els[i], sizeof(EL_T));
+      else
+        check_write_bytes(call_id, MAAP_t::ModRef, addrs.els[i], sizeof(EL_T));
+    }
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_gather_dpd_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *result, v8f64 *vbase, void *base,
+    v8i32 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f64, 8, v8i32, uint8_t, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_scatter_dpd_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *result, v8f64 *vbase, void *base,
+    v8i32 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f64, 8, v8i32, uint8_t, false>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_gather_dps_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v16f32 *result, v16f32 *vbase, void *base,
+    v16i32 *index, uint16_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v16f32, 16, v16i32, uint16_t, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_scatter_dps_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v16f32 *result, v16f32 *vbase, void *base,
+    v16i32 *index, uint16_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v16f32, 16, v16i32, uint16_t, false>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_gather_qpd_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *result, v8f64 *vbase, void *base,
+    v8i64 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f64, 8, v8i64, uint8_t, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_scatter_qpd_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f64 *result, v8f64 *vbase, void *base,
+    v8i64 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f64, 8, v8i64, uint8_t, false>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_gather_qps_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f32 *result, v8f32 *vbase, void *base,
+    v8i64 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f32, 8, v8i64, uint8_t, true>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
+CILKSAN_API void __csan_llvm_x86_avx512_mask_scatter_qps_512(
+    const csi_id_t call_id, const csi_id_t func_id, unsigned MAAP_count,
+    const call_prop_t prop, v8f32 *result, v8f32 *vbase, void *base,
+    v8i64 *index, uint8_t *mask, int32_t scale) {
+  generic_x86_avx512_mask_gather_scatter<v8f32, 8, v8i64, uint8_t, false>(
+      call_id, MAAP_count, prop, result, vbase, base, index, mask, scale);
+}
+
 CILKSAN_API void __csan_llvm_x86_sse2_pause(const csi_id_t call_id,
                                             const csi_id_t func_id,
                                             unsigned MAAP_count,
@@ -4867,6 +4974,24 @@ CILKSAN_API void __csan_tanhl(const csi_id_t call_id, const csi_id_t func_id,
 CILKSAN_API void __csan_toascii(const csi_id_t call_id, const csi_id_t func_id,
                                 unsigned MAAP_count, const call_prop_t prop,
                                 int result, int c) {
+  return;
+}
+
+CILKSAN_API void __csan_tgamma(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               double result, double arg) {
+  return;
+}
+
+CILKSAN_API void __csan_tgammaf(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                float result, float arg) {
+  return;
+}
+
+CILKSAN_API void __csan_tgammal(const csi_id_t call_id, const csi_id_t func_id,
+                                unsigned MAAP_count, const call_prop_t prop,
+                                long double result, long double arg) {
   return;
 }
 
