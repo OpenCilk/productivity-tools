@@ -11,8 +11,12 @@
 #include "locksets.h"
 #include "shadow_mem_allocator.h"
 #include "stack.h"
+#include <cilk/reducer>
 #include <cstdio>
 #include <unordered_map>
+
+using cilk::reducer_base;
+using cilk::reducer_callbacks;
 
 extern bool CILKSAN_INITIALIZED;
 
@@ -176,14 +180,14 @@ public:
 
   // Create a new reducer view.
   void *create_reducer_view_0(hyper_table *__restrict__ reducer_views,
-                              __reducer_base *key) {
+                              reducer_base *key) {
     // Create a new view and initialize it with the identity function.
-    size_t size = key->size();
+    size_t size = key->view_size();
     void *new_view = malloc(size);
     DBG_TRACE(REDUCER, "create_reducer_view_0(%p): created view %p -> %p\n",
               (void *)reducer_views, (void *)key, new_view);
     mark_alloc(new_view, size);
-    __reducer_base *base = key->identity(new_view);
+    reducer_base *base = key->identity(new_view);
     // Insert the new view into the local hypertable.
     hyper_table::bucket new_bucket = {
         .key = (uintptr_t)key,
@@ -192,12 +196,12 @@ public:
     assert(success && "create_reducer_view failed to insert new reducer.");
 
     // Return the new view.
-    return new_view;
+    return base;
   }
 
   void *create_reducer_view_1(hyper_table *__restrict__ reducer_views,
                               uintptr_t key,
-                              const __reducer_callbacks &callbacks) {
+                              const reducer_callbacks &callbacks) {
     // Create a new view and initialize it with the identity function.
     void *new_view = malloc(callbacks.size);
     DBG_TRACE(REDUCER, "create_reducer_view_1(%p): created view %p -> %p\n",

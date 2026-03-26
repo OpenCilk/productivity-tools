@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cstdint>
 
+using cilk::reducer_data;
+
 // Helper methods for testing and setting keys.
 static const uintptr_t KEY_EMPTY = 0UL;
 static const uintptr_t KEY_DELETED = ~0UL;

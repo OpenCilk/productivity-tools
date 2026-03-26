@@ -2,6 +2,7 @@
 #ifndef _HYPEROBJECT_BASE
 #define _HYPEROBJECT_BASE
 
+#include "cilk/cilk_api.h"
 #include <cilk/reducer>
 #include <variant>
 
@@ -13,18 +14,24 @@
 // gets them as parameters.
 //
 // TODO: For small reducer views of size less than sizeof(void *),
-// consider storing the view directly within the reducer_data.
+// consider storing the view directly within the reducer_data
 // structure.
 // - Problem: A reducer_data structure may move around in the hash
 //   table as other reducers are inserted.  As a result, a pointer to
 //   a view may be invalidated by other hyper_lookup operations.
 // - Problem: Need a way to keep track of whether the view in a
 //   reducer_data is storing a pointer to the view or the view itself.
+
+namespace cilk {
+
 struct reducer_data {
-  void *view = nullptr;
-  std::variant<__reducer_base *, const std::function<void(void *, void *)> *,
-               void (*)(void *, void *)>
-      extra;
+    void *view = nullptr;
+    std::variant<
+        reducer_base *,
+        const reduce_fn *,
+        __cilk_c_reduce_fn *
+        > extra;
 };
 
+} // namespace cilk
 #endif /* _HYPEROBJECT_BASE */
