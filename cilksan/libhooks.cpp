@@ -996,6 +996,11 @@ __csan___isoc99_sscanf(const csi_id_t call_id, const csi_id_t func_id,
   va_end(ap);
 }
 
+CILKSAN_API void __csan_abort(const csi_id_t call_id, const csi_id_t func_id,
+                              unsigned MAAP_count, const call_prop_t prop) {
+  return;
+}
+
 CILKSAN_API void __csan_abs(const csi_id_t call_id, const csi_id_t func_id,
                             unsigned MAAP_count, const call_prop_t prop,
                             int result, int n) {
@@ -1169,6 +1174,19 @@ CILKSAN_API void __csan_atanhl(const csi_id_t call_id, const csi_id_t func_id,
                                unsigned MAAP_count, const call_prop_t prop,
                                long double result, long double arg) {
   return;
+}
+
+CILKSAN_API void __csan_atexit(const csi_id_t call_id, const csi_id_t func_id,
+                               unsigned MAAP_count, const call_prop_t prop,
+                               int result, void (*func)(void)) {
+  if (!CILKSAN_INITIALIZED)
+    return;
+
+  if (!should_check())
+    return;
+
+  for (unsigned i = 0; i < MAAP_count; ++i)
+    MAAPs.pop();
 }
 
 CILKSAN_API void __csan_atof(const csi_id_t call_id, const csi_id_t func_id,
@@ -5385,4 +5403,11 @@ CILKSAN_API void __csan_write(const csi_id_t call_id, const csi_id_t func_id,
     return;
 
   check_read_bytes(call_id, buf_MAAPVal, buf, result);
+}
+
+CILKSAN_API void __csan__ZSt9terminatev(const csi_id_t call_id,
+                                        const csi_id_t func_id,
+                                        unsigned MAAP_count,
+                                        const call_prop_t prop) {
+  return;
 }
