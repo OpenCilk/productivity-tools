@@ -1,0 +1,77 @@
+# Build for the Cilkgraph runtime support library.
+
+set(CILKGRAPH_SOURCES
+  cilkgraph.cpp
+  csirt.cpp
+  )
+
+include_directories(${CILKTOOLS_SOURCE_DIR}/include)
+
+set(CILKGRAPH_CFLAGS ${SANITIZER_COMMON_CFLAGS})
+append_list_if(CILKTOOLS_HAS_CILK -fopencilk CILKGRAPH_CFLAGS)
+append_list_if(CILKTOOLS_HAS_FDEBUG_DEFAULT_VERSION_EQ_4_FLAG
+  -fdebug-default-version=4 CILKGRAPH_CFLAGS)
+append_rtti_flag(OFF CILKGRAPH_CFLAGS)
+
+set(CILKGRAPH_COMMON_DEFINITIONS)
+append_list_if(CILKTOOLS_HAS_CILK SERIAL_TOOL=0 CILKGRAPH_COMMON_DEFINITIONS)
+
+set(CILKGRAPH_DYNAMIC_LINK_FLAGS)
+append_list_if(CILKTOOLS_HAS_CILK -fopencilk CILKGRAPH_DYNAMIC_LINK_FLAGS)
+
+set(CILKGRAPH_DYNAMIC_CFLAGS ${CILKGRAPH_CFLAGS})
+set(CILKGRAPH_DYNAMIC_DEFINITIONS ${CILKGRAPH_COMMON_DEFINITIONS})
+
+set(CILKGRAPH_COMMON_LIBS ${SANITIZER_CXX_ABI_LIBRARY} ${SANITIZER_COMMON_LINK_LIBS})
+
+set(CILKGRAPH_DYNAMIC_LIBS ${CILKGRAPH_COMMON_LIBS})
+
+# Build Cilkgraph runtimes shipped with Clang.
+add_cilktools_component(cilkgraph)
+
+if (APPLE)
+    add_cilktools_runtime(clang_rt.cilkgraph
+      STATIC
+      OS ${CILKTOOL_SUPPORTED_OS}
+      ARCHS ${CILKGRAPH_SUPPORTED_ARCH}
+      SOURCES ${CILKGRAPH_SOURCES}
+      CFLAGS ${CILKGRAPH_CFLAGS}
+      DEFS ${CILKGRAPH_COMMON_DEFINITIONS}
+      PARENT_TARGET cilkgraph)
+
+    add_cilktools_runtime(clang_rt.cilkgraph
+      SHARED
+      OS ${CILKTOOL_SUPPORTED_OS}
+      ARCHS ${CILKGRAPH_SUPPORTED_ARCH}
+      SOURCES ${CILKGRAPH_SOURCES}
+      CFLAGS ${CILKGRAPH_DYNAMIC_CFLAGS}
+      LINK_FLAGS ${CILKGRAPH_DYNAMIC_LINK_FLAGS}
+      LINK_LIBS ${CILKGRAPH_DYNAMIC_LIBS}
+      DEFS ${CILKGRAPH_DYNAMIC_DEFINITIONS}
+      PARENT_TARGET cilkgraph)
+
+else()
+  foreach (arch ${CILKGRAPH_SUPPORTED_ARCH})
+    add_cilktools_runtime(clang_rt.cilkgraph
+      STATIC
+      ARCHS ${arch}
+      SOURCES ${CILKGRAPH_SOURCES}
+      CFLAGS ${CILKGRAPH_CFLAGS}
+      DEFS ${CILKGRAPH_COMMON_DEFINITIONS}
+      PARENT_TARGET cilkgraph)
+
+    add_cilktools_runtime(clang_rt.cilkgraph
+      SHARED
+      ARCHS ${arch}
+      SOURCES ${CILKGRAPH_SOURCES}
+      CFLAGS ${CILKGRAPH_DYNAMIC_CFLAGS}
+      LINK_FLAGS ${CILKGRAPH_DYNAMIC_LINK_FLAGS}
+      LINK_LIBS ${CILKGRAPH_DYNAMIC_LIBS}
+      DEFS ${CILKGRAPH_DYNAMIC_DEFINITIONS}
+      PARENT_TARGET cilkgraph)
+  endforeach()
+endif()
+
+if (CILKTOOLS_INCLUDE_TESTS)
+  # TODO: add tests
+endif()
